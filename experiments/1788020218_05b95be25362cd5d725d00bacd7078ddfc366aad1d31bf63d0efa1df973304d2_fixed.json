@@ -1,0 +1,35 @@
+{
+  "timestamp": "2026-08-29T16:16:58.118587Z",
+  "document_id": "05b95be25362cd5d725d00bacd7078ddfc366aad1d31bf63d0efa1df973304d2",
+  "filename": "test.txt",
+  "strategy": "fixed",
+  "config": {
+    "strategy": "fixed",
+    "chunk_size": 1000,
+    "overlap": null
+  },
+  "chunk_count": 1,
+  "average_chunk_size": 79.0,
+  "minimum_chunk_size": 79,
+  "maximum_chunk_size": 79,
+  "median_chunk_size": 79.0,
+  "total_source_characters": 79,
+  "total_chunk_characters": 79,
+  "coverage": 100.0,
+  "processing_time_seconds": 9.918212890625e-05,
+  "preview_chunks": [
+    {
+      "chunk_id": "a2db73a8e0deb70f7f7177bf19dfbb5179d8c28ec1c7720f49beb67dea930ad5",
+      "document_id": "05b95be25362cd5d725d00bacd7078ddfc366aad1d31bf63d0efa1df973304d2",
+      "chunk_index": 0,
+      "text": "This is a test document in English.\n\nHere is some Bangla text: এটি একটি পরীক্ষা",
+      "page_start": 1,
+      "page_end": 1,
+      "section": null,
+      "strategy": "fixed",
+      "chunk_size": 1000,
+      "overlap": 0,
+      "metadata": {}
+    }
+  ]
+}

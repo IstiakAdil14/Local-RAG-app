@@ -1,0 +1,102 @@
+{
+  "timestamp": "2026-08-30T11:43:58.595811",
+  "document_id": "05b95be25362cd5d725d00bacd7078ddfc366aad1d31bf63d0efa1df973304d2",
+  "strategy": "fixed",
+  "queries": [
+    {
+      "query": "test document in English",
+      "top_k": 5,
+      "search_time_seconds": 23.361917972564697,
+      "retrieved_count": 1,
+      "retrieved_documents": [
+        {
+          "document_id": "05b95be25362cd5d725d00bacd7078ddfc366aad1d31bf63d0efa1df973304d2",
+          "chunk_index": 0,
+          "score": 0.5126679753843859,
+          "snippet": "This is a test document in English.\n\nHere is some Bangla text: এটি একটি পরীক্ষা"
+        }
+      ],
+      "metrics": {
+        "average_score": 0.5126679753843859,
+        "maximum_score": 0.5126679753843859,
+        "total_retrieval_time_seconds": 23.361959218978882
+      }
+    },
+    {
+      "query": "Bangla textএটি একটি পরীক্ষা",
+      "top_k": 5,
+      "search_time_seconds": 0.031152009963989258,
+      "retrieved_count": 1,
+      "retrieved_documents": [
+        {
+          "document_id": "05b95be25362cd5d725d00bacd7078ddfc366aad1d31bf63d0efa1df973304d2",
+          "chunk_index": 0,
+          "score": 0.8661380141720358,
+          "snippet": "This is a test document in English.\n\nHere is some Bangla text: এটি একটি পরীক্ষা"
+        }
+      ],
+      "metrics": {
+        "average_score": 0.8661380141720358,
+        "maximum_score": 0.8661380141720358,
+        "total_retrieval_time_seconds": 0.031200170516967773
+      }
+    },
+    {
+      "query": "এটি একটি পরীক্ষা",
+      "top_k": 5,
+      "search_time_seconds": 0.03567075729370117,
+      "retrieved_count": 1,
+      "retrieved_documents": [
+        {
+          "document_id": "05b95be25362cd5d725d00bacd7078ddfc366aad1d31bf63d0efa1df973304d2",
+          "chunk_index": 0,
+          "score": 0.7799859424508635,
+          "snippet": "This is a test document in English.\n\nHere is some Bangla text: এটি একটি পরীক্ষা"
+        }
+      ],
+      "metrics": {
+        "average_score": 0.7799859424508635,
+        "maximum_score": 0.7799859424508635,
+        "total_retrieval_time_seconds": 0.035710811614990234
+      }
+    },
+    {
+      "query": "learning python and javascript",
+      "top_k": 5,
+      "search_time_seconds": 0.023577213287353516,
+      "retrieved_count": 1,
+      "retrieved_documents": [
+        {
+          "document_id": "05b95be25362cd5d725d00bacd7078ddfc366aad1d31bf63d0efa1df973304d2",
+          "chunk_index": 0,
+          "score": 0.08480119092146357,
+          "snippet": "This is a test document in English.\n\nHere is some Bangla text: এটি একটি পরীক্ষা"
+        }
+      ],
+      "metrics": {
+        "average_score": 0.08480119092146357,
+        "maximum_score": 0.08480119092146357,
+        "total_retrieval_time_seconds": 0.02361583709716797
+      }
+    },
+    {
+      "query": "machine learning algorithms",
+      "top_k": 5,
+      "search_time_seconds": 0.02096080780029297,
+      "retrieved_count": 1,
+      "retrieved_documents": [
+        {
+          "document_id": "05b95be25362cd5d725d00bacd7078ddfc366aad1d31bf63d0efa1df973304d2",
+          "chunk_index": 0,
+          "score": 0.07508169364712797,
+          "snippet": "This is a test document in English.\n\nHere is some Bangla text: এটি একটি পরীক্ষা"
+        }
+      ],
+      "metrics": {
+        "average_score": 0.07508169364712797,
+        "maximum_score": 0.07508169364712797,
+        "total_retrieval_time_seconds": 0.020998001098632812
+      }
+    }
+  ]
+}
