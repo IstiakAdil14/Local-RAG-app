@@ -1,49 +1,13 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-.venv/
-backend/.venv/
-.pytest_cache/
-
-# Node
-node_modules/
-.next/
-*.tsbuildinfo
-
-# Env
+# Sensitive credentials
 .env
-.env.local
 
-# Data and Cache
-cache/
-data/raw/*
-!data/raw/.gitkeep
-data/processed/*
-!data/processed/.gitkeep
-data/evaluation/*
-!data/evaluation/.gitkeep
-documents/raw/*
-!documents/raw/.gitkeep
-documents/processed/*
-!documents/processed/.gitkeep
+# Python virtual environments
+venv/
+.venv/
+__pycache__/
 
-# Models
-models/embeddings/*
-!models/embeddings/.gitkeep
-models/reranker/*
-!models/reranker/.gitkeep
-models/llm/*
-!models/llm/.gitkeep
-
-# Qdrant
-qdrant/storage/*
-!qdrant/storage/.gitkeep
-
-# IDEs
-.vscode/
-.idea/
-
-# OS generated files
-.DS_Store
-Thumbs.db
+# Vector databases & Large data files (if stored locally)
+*.db
+*.sqlite
+data/
+chroma_db/

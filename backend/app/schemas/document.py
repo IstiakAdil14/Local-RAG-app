@@ -1,26 +1,40 @@
-from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
+from pydantic import BaseModel, Field
+from typing import List, Optional
 
-class Page(BaseModel):
+class ChunkMetadata(BaseModel):
+    document_id: str
+    document_name: str
     page_number: int
+    section: str = "General"
+    chunk_id: str
+
+class DocumentChunk(BaseModel):
     text: str
+    metadata: ChunkMetadata
 
-class DocumentMetadata(BaseModel):
-    title: Optional[str] = None
-    author: Optional[str] = None
-    creation_date: Optional[str] = None
-
-class ParsedDocument(BaseModel):
+class ProcessedDocument(BaseModel):
     document_id: str
-    filename: str
-    file_type: str
-    page_count: int
-    pages: List[Page]
-    metadata: Optional[DocumentMetadata] = None
+    document_name: str
+    total_pages: int
+    chunks: List[DocumentChunk]
 
-class UploadResponse(BaseModel):
-    filename: str
-    document_id: str
-    file_type: str
-    page_count: int
-    status: str
+class QueryRequest(BaseModel):
+    query: str
+    top_k: int = 5
+    retrival_strategy: str = "hybrid"
+    chunks_strategy: str = "semantic"
+
+class Citation(BaseModel):
+    document_name: str
+    page_number: int
+    section: str
+    chunk_id: str
+
+class QueryResponse(BaseModel):
+    query: str
+    answer: str
+    citations: List[Citation]
+    retrieval_latency_ms: float
+    rerank_latency_ms: float
+    generation_latency_ms: float
+    total_latency_ms: float
