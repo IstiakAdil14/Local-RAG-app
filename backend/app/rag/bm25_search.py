@@ -32,9 +32,18 @@ class LocalBM25Store:
 
     def index_chunks(self, chunks: List[DocumentChunk]):
         self.chunks.extend(chunks)
-        tokenized_corpus = [self._tokenize(chunk.text) for chunk in chunks]
+        tokenized_corpus = [self._tokenize(chunk.text) for chunk in self.chunks]
         self.bm25 = BM25Okapi(tokenized_corpus)
         self.save_index()
+
+    def clear(self):
+        self.chunks = []
+        self.bm25 = None
+        if os.path.exists(self.index_path):
+            try:
+                os.remove(self.index_path)
+            except Exception:
+                pass
 
     def search(self, query: str, top_k: int = 5)-> List[Dict[str, Any]]:
         if not self.bm25 or not self.chunks:

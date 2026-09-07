@@ -8,7 +8,13 @@ from app.schemas.document import DocumentChunk
 class LocalVectorStore:
     def __init__(self, storage_path: str = "./data/qdrant_db", collection_name: str = "rag_chunks"):
         os.makedirs(storage_path, exist_ok=True)
-        self.client = QdrantClient(path=storage_path)
+        try:
+            self.client = QdrantClient(path=storage_path)
+        except RuntimeError as e:
+            if "already accessed by another instance" in str(e):
+                print(f"❌ Error: Qdrant database directory '{storage_path}' is locked by another running Python process (e.g. background script, worker process, or Streamlit app).")
+                print("   Please terminate other running instances of the application or background tests and retry.")
+            raise e
         self.collection_name = collection_name
         self.vector_dim = 1024  # BGE-M3 dense dimension
 
@@ -22,6 +28,11 @@ class LocalVectorStore:
                 collection_name=self.collection_name,
                 vectors_config=VectorParams(size=self.vector_dim, distance=Distance.COSINE)
             )
+
+    def clear(self):
+        if self.client.collection_exists(self.collection_name):
+            self.client.delete_collection(self.collection_name)
+        self._ensure_collection()
 
     def index_chunks(self, chunks: List[DocumentChunk], embeddings: List[List[float]]):
         points = []

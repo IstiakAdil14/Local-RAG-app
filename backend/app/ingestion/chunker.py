@@ -44,7 +44,7 @@ class FixedSizeChunker(BaseChunker):
         return chunks
 
 class SemanticStructureChunker(BaseChunker):
-    def __init__(self, max_chunk_size: int = 600, min_chunk_size: int = 100):
+    def __init__(self, max_chunk_size: int = 1024, min_chunk_size: int = 100):
         self.max_chunk_size = max_chunk_size
         self.min_chunk_size = min_chunk_size
 

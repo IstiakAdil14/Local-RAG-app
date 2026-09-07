@@ -1,3 +1,4 @@
+import re
 import time
 from typing import Dict, Any, List
 from app.rag.embeddings import LocalEmbeddingEngine
@@ -7,6 +8,7 @@ from app.schemas.document import QueryResponse, Citation
 from app.rag.bm25_search import LocalBM25Store
 from app.rag.hybrid_search import HybridSearchEngine
 from app.rag.reranker import LocalCrossEncoderReranker
+
 class BaseLineRAGPipeline:
     def __init__(self, storage_path: str = "./data/qdrant_db", collection_name: str = "rag_chunks"):
         self.embedder = LocalEmbeddingEngine()
@@ -77,6 +79,21 @@ class AdvancedRAGPipeline:
             )
         self.reranker = LocalCrossEncoderReranker(model_name=reranker_model)
         self.generator = LocalGenerator(model_id=generator_model)
+
+    def _is_global_query(self, query: str) -> bool:
+        q_lower = query.lower()
+        patterns = [
+            r"\b(list|show|explain|give)\b.*\b(every|all)\b",
+            r"\b(every|all)\b.*\b(cell|cells|section|sections|page|pages|doc|document)\b",
+            r"\bsummarize\b",
+            r"\bsummary\b",
+            r"\blist all\b",
+            r"\blist every\b",
+            r"\ball cells\b",
+            r"\bevery cell\b",
+            r"\boverview\b"
+        ]
+        return any(re.search(p, q_lower) for p in patterns)
     
     def query(
         self,
@@ -85,22 +102,42 @@ class AdvancedRAGPipeline:
         top_n_rerank: int=3
     ) -> QueryResponse:
         total_start = time.time()
+
+        is_global = self._is_global_query(user_query)
+        effective_candidates = max(retrieval_candidates, 12) if is_global else min(retrieval_candidates, 8)
+        effective_top_n = max(top_n_rerank, 5) if is_global else min(top_n_rerank, 3)
+
         candidates = self.hybrid_engine.search(
             query=user_query,
-            top_k=retrieval_candidates,
+            top_k=effective_candidates,
+            candidate_pool=max(15, effective_candidates * 2)
         )
         retrieval_ms = (time.time() - total_start) * 1000.0
         
         t_rerank_start = time.time()
-        reranked_chunks = self.reranker.rerank(
-            query=user_query,
-            candidates=candidates,
-            top_n=top_n_rerank
-        )
+        if is_global:
+            # For global aggregation queries, order candidate chunks sequentially by page and chunk_id
+            reranked_chunks = sorted(
+                candidates[:effective_top_n],
+                key=lambda c: (
+                    c.get("metadata", {}).get("page_number", 0),
+                    c.get("metadata", {}).get("chunk_id", "")
+                )
+            )
+        else:
+            reranked_chunks = self.reranker.rerank(
+                query=user_query,
+                candidates=candidates,
+                top_n=effective_top_n
+            )
         rerank_ms = (time.time() - t_rerank_start) * 1000.0
 
         t_gen_start = time.time()
-        answer = self.generator.generate_grounded_answer(user_query, reranked_chunks)
+        answer = self.generator.generate_grounded_answer(
+            user_query, 
+            reranked_chunks,
+            max_tokens=400 if is_global else 250
+        )
         generation_ms = (time.time() - t_gen_start) * 1000.0
 
         total_ms = (time.time() - total_start) * 1000.0

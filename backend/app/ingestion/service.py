@@ -22,7 +22,7 @@ class DocumentIngestionService:
         self.vector_store = vector_store
         self.bm25_store = bm25_store
         self.upload_dir = upload_dir
-        self.chunker = SemanticStructureChunker(max_chunk_size=512)
+        self.chunker = SemanticStructureChunker(max_chunk_size=1024)
         os.makedirs(self.upload_dir, exist_ok=True)
     
     async def ingest_file(self, file: UploadFile)-> Dict[str, Any]:
@@ -49,5 +49,10 @@ class DocumentIngestionService:
             "filename": file.filename,
             "chunks_indexed": len(chunks),
             "pages_parsed": len(pages)
-        } 
+        }
+
+    def clear_database(self) -> Dict[str, str]:
+        self.vector_store.clear()
+        self.bm25_store.clear()
+        return {"message": "All vector and BM25 document indexes cleared successfully."}
                

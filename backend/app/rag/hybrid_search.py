@@ -17,9 +17,10 @@ class HybridSearchEngine:
         self.rrf_k=rrf_k
     
     def search(self, query: str, top_k: int = 5, candidate_pool: int = 15) -> List[Dict[str, Any]]:
+        pool_size = max(top_k, candidate_pool)
         q_vec = self.embedder.embed_query(query)
-        dense_results = self.vector_store.search(q_vec, top_k=candidate_pool)
-        sparse_results = self.bm25_store.search(query, top_k=candidate_pool)
+        dense_results = self.vector_store.search(q_vec, top_k=pool_size)
+        sparse_results = self.bm25_store.search(query, top_k=pool_size)
 
         rrf_scores: Dict[str,float]={}
         chunk_lookup:Dict[str,Dict[str,Any]] = {}

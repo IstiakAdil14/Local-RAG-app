@@ -1,6 +1,10 @@
+import os
 import torch
 from sentence_transformers import CrossEncoder
 from typing import List, Dict, Any
+
+# Maximize CPU multithreading for fast Cross-Encoder reranking
+torch.set_num_threads(os.cpu_count() or 8)
 
 class LocalCrossEncoderReranker:
     def __init__(self, model_name: str="BAAI/bge-reranker-base", device: str = None):

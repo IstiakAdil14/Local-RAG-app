@@ -1,13 +1,24 @@
 # Sensitive credentials
 .env
 
-# Python virtual environments
+# Python virtual environments & bytecode
 venv/
 .venv/
 __pycache__/
+*.pyc
 
-# Vector databases & Large data files (if stored locally)
-*.db
-*.sqlite
+# Model weights & local cache directories
+models/
+.cache/
+*.bin
+*.safetensors
+*.pth
+*.onnx
+
+# Data stores & vector databases
 data/
 chroma_db/
+qdrant_db/
+*.db
+*.sqlite
+*.pkl

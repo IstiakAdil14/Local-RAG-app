@@ -1,0 +1,10 @@
+
+# backend
+$env:HF_HOME = "d:\local-rag-system\models\huggingface"
+$env:HF_HUB_OFFLINE = "1"
+$env:TRANSFORMERS_OFFLINE = "1"
+python -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000 --reload
+
+
+#frontend
+python -m streamlit run frontend/app.py

@@ -5,7 +5,7 @@ API_BASE_URL = "http://127.0.0.1:8000/api/v1"
 
 st.set_page_config(
     page_title="Local RAG System",
-    page_icon="📚",
+    page_icon=":material/auto_stories:",
     layout="wide"
 )
 
@@ -17,7 +17,7 @@ if "indexed_docs" not in st.session_state:
 
 # --- Sidebar: Document Ingestion & Parameters ---
 with st.sidebar:
-    st.header("📄 Ingestion & Settings")
+    st.header("Ingestion & Settings", icon=":material/settings:")
 
     uploaded_file = st.file_uploader(
         "Upload Document",
@@ -26,7 +26,7 @@ with st.sidebar:
     )
 
     if uploaded_file is not None:
-        if st.button("Index Document", use_container_width=True):
+        if st.button("Index Document", icon=":material/upload_file:", use_container_width=True):
             with st.spinner("Parsing, embedding, and indexing..."):
                 try:
                     files = {"file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)}
@@ -44,19 +44,32 @@ with st.sidebar:
 
     st.divider()
 
-    st.subheader("⚙️ Retrieval Parameters")
-    retrieval_candidates = st.slider("Hybrid Retrieval Candidates", min_value=3, max_value=20, value=8)
+    st.subheader("Retrieval Parameters", icon=":material/tune:")
+    retrieval_candidates = st.slider("Hybrid Retrieval Candidates", min_value=3, max_value=20, value=5)
     top_n_rerank = st.slider("Cross-Encoder Top-N", min_value=1, max_value=5, value=2)
 
     st.divider()
-    if st.button("Clear Chat History", use_container_width=True):
+    if st.button("Clear Chat History", icon=":material/cleaning_services:", use_container_width=True):
         st.session_state.messages = []
         st.rerun()
+
+    if st.button("Reset Knowledge Base", icon=":material/delete_forever:", use_container_width=True, help="Clear all indexed documents from vector database and BM25 index"):
+        try:
+            resp = requests.post(f"{API_BASE_URL}/documents/reset")
+            if resp.status_code == 200:
+                st.session_state.indexed_docs = []
+                st.session_state.messages = []
+                st.success("Knowledge Base reset successfully!")
+                st.rerun()
+            else:
+                st.error(f"Reset failed: {resp.text}")
+        except Exception as e:
+            st.error(f"Connection error: {e}")
 
 # ==============================================================================
 # Main Workspace (Completely outside the sidebar block)
 # ==============================================================================
-st.title("📚 Fully Local RAG System")
+st.title("Fully Local RAG System")
 st.caption("Hybrid RRF (BGE-M3 + BM25) ➔ Neural Reranker (BGE) ➔ Qwen2.5-0.5B-Instruct")
 
 # Render message history in main screen
@@ -64,7 +77,7 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
         if "citations" in msg and msg["citations"]:
-            with st.expander("🔍 Citations & Sources"):
+            with st.expander("Citations & Sources", icon=":material/source:"):
                 for idx, c in enumerate(msg["citations"], 1):
                     st.markdown(
                         f"**[{idx}] {c['document_name']}** (Page: {c['page_number']}, Section: `{c['section']}`)\n"
@@ -73,7 +86,7 @@ for msg in st.session_state.messages:
         if "latency" in msg and msg["latency"]:
             lat = msg["latency"]
             st.caption(
-                f"⏱️ **Retrieval:** {lat['retrieval']} ms | "
+                f"**Retrieval:** {lat['retrieval']} ms | "
                 f"**Rerank:** {lat['rerank']} ms | "
                 f"**Gen:** {lat['gen']} ms | "
                 f"**Total:** {lat['total']} ms"
@@ -93,7 +106,7 @@ if prompt := st.chat_input("Ask a question about your indexed documents..."):
                     "retrieval_candidates": retrieval_candidates,
                     "top_n_rerank": top_n_rerank
                 }
-                resp = requests.post(f"{API_BASE_URL}/rag/query", json=payload)
+                resp = requests.post(f"{API_BASE_URL}/rag/query", json=payload, timeout=300)
 
                 if resp.status_code == 200:
                     data = resp.json()
@@ -109,7 +122,7 @@ if prompt := st.chat_input("Ask a question about your indexed documents..."):
                     st.markdown(answer)
 
                     if citations:
-                        with st.expander("🔍 Citations & Sources"):
+                        with st.expander("Citations & Sources", icon=":material/source:"):
                             for idx, c in enumerate(citations, 1):
                                 st.markdown(
                                     f"**[{idx}] {c['document_name']}** (Page: {c['page_number']}, Section: `{c['section']}`)\n"
@@ -117,7 +130,7 @@ if prompt := st.chat_input("Ask a question about your indexed documents..."):
                                 )
 
                     st.caption(
-                        f"⏱️ **Retrieval:** {latency['retrieval']} ms | "
+                        f"**Retrieval:** {latency['retrieval']} ms | "
                         f"**Rerank:** {latency['rerank']} ms | "
                         f"**Gen:** {latency['gen']} ms | "
                         f"**Total:** {latency['total']} ms"
