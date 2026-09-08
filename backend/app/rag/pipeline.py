@@ -149,9 +149,10 @@ class AdvancedRAGPipeline:
             r"\bsummary\b",
             r"\blist all\b",
             r"\blist every\b",
-            r"\ball cells\b",
-            r"\bevery cell\b",
-            r"\boverview\b"
+            r"\boverview\b",
+            r"\bwhat\s+is\s+about\b",
+            r"\babout\s+this\s+(doc|pdf|document)\b",
+            r"\bwhat\s+is\s+this\s+(doc|pdf|document)\s+about\b"
         ]
         return any(re.search(p, q_lower) for p in patterns)
     
@@ -165,7 +166,7 @@ class AdvancedRAGPipeline:
 
         is_global = self._is_global_query(user_query)
         effective_candidates = max(retrieval_candidates, 12) if is_global else max(retrieval_candidates, 8)
-        effective_top_n = max(top_n_rerank, 5) if is_global else max(top_n_rerank, 4)
+        effective_top_n = max(top_n_rerank, 6) if is_global else max(top_n_rerank, 4)
 
         candidates = self.hybrid_engine.search(
             query=user_query,
@@ -193,11 +194,14 @@ class AdvancedRAGPipeline:
         rerank_ms = (time.time() - t_rerank_start) * 1000.0
 
         t_gen_start = time.time()
-        answer = self.generator.generate_grounded_answer(
-            user_query, 
-            reranked_chunks,
-            max_tokens=400 if is_global else 250
-        )
+        if is_global:
+            answer = self.generator.summarize_document(reranked_chunks)
+        else:
+            answer = self.generator.generate_grounded_answer(
+                user_query, 
+                reranked_chunks,
+                max_tokens=250
+            )
         generation_ms = (time.time() - t_gen_start) * 1000.0
 
         total_ms = (time.time() - total_start) * 1000.0

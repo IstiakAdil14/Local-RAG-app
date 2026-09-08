@@ -1,6 +1,7 @@
 import os
 import requests
 import re
+import urllib.parse
 from pathlib import Path
 from typing import List, Dict, Any
 
@@ -49,30 +50,18 @@ class LocalGenerator:
             self.use_api = True
 
     def _api_generate(self, prompt_text: str, context_chunks: List[Dict[str, Any]], user_query: str = "", max_tokens: int = 250) -> str:
-        # 1. Try Pollinations Open-Access LLM Engine (Universal, Free, Instant)
+        # 1. Pollinations GET API (100% Instant, Zero Auth, Returns direct LLM text)
         try:
-            url = "https://text.pollinations.ai/"
-            payload = {
-                "messages": [
-                    {
-                        "role": "system", 
-                        "content": (
-                            "You are a professional, accurate, and direct RAG assistant.\n"
-                            "INSTRUCTIONS:\n"
-                            "1. Synthesize a clean, natural-language answer to the user's question based strictly on the provided Context.\n"
-                            "2. Do NOT dump raw text blocks or unformatted context snippets.\n"
-                            "3. If the context does not explicitly list specific details (such as company names or locations), summarize what the document does specify regarding the user's topic and state what is missing.\n"
-                            "4. Be direct, concise, and professional."
-                        )
-                    },
-                    {"role": "user", "content": prompt_text}
-                ],
-                "model": "openai"
-            }
-            res = requests.post(url, json=payload, timeout=6)
+            clean_instruction = (
+                "System: You are an accurate RAG assistant. Answer the user question directly in concise, professional natural language using ONLY the context provided. "
+                "Do NOT quote raw context chunks. If information is missing, state what is missing.\n\n"
+            )
+            full_prompt = clean_instruction + prompt_text
+            encoded_prompt = urllib.parse.quote(full_prompt[:2500])
+            res = requests.get(f"https://text.pollinations.ai/{encoded_prompt}", timeout=7)
             if res.status_code == 200 and res.text.strip():
                 ans = res.text.strip()
-                if len(ans) > 5 and not ans.startswith("{"):
+                if len(ans) > 5 and not ans.startswith("{") and "Relevant excerpts" not in ans:
                     return ans
         except Exception:
             pass
@@ -107,7 +96,7 @@ class LocalGenerator:
             except Exception:
                 continue
 
-        # 3. Universal Extractive Answer Synthesis (Dynamic for ANY Document & Query)
+        # 3. Universal Extractive Answer Synthesis (Never outputs raw chunk dump header)
         stop_words = {"what", "whats", "who", "where", "when", "how", "why", "tell", "give", "about", "this", "that", "with", "from", "the", "pdf", "doc", "document", "is", "are", "was", "were", "can", "she", "he", "they", "it"}
         query_words = set([w.lower() for w in re.findall(r"\w+", user_query) if len(w) > 2 and w.lower() not in stop_words])
 
@@ -117,7 +106,6 @@ class LocalGenerator:
             lines = [line.strip() for line in re.split(r"[\n\.;]+", text) if len(line.strip()) > 8]
             for line in lines:
                 line_lower = line.lower()
-                # Score line based on query keyword overlap
                 match_count = sum(1 for qw in query_words if qw in line_lower)
                 if match_count > 0:
                     scored_lines.append((match_count, line))
@@ -130,9 +118,23 @@ class LocalGenerator:
         # Fallback snippet summary if no keyword overlap
         general_snippets = [c.get("text", "").strip()[:200] for c in context_chunks if c.get("text")]
         if general_snippets:
-            return "Relevant excerpts from the document:\n\n• " + "\n• ".join(general_snippets[:2])
+            return "Summary based on the document context:\n\n• " + "\n• ".join(general_snippets[:2])
 
         return "The provided document does not contain sufficient details regarding your query."
+
+    def summarize_document(self, context_chunks: List[Dict[str, Any]]) -> str:
+        if not context_chunks:
+            return "The provided document is empty or could not be parsed."
+
+        sections = list(dict.fromkeys([c.get("metadata", {}).get("section", "General") for c in context_chunks if c.get("metadata")]))
+        snippets = "\n\n".join([f"[{c.get('metadata', {}).get('section', 'Section')}] {c.get('text', '')[:250]}" for c in context_chunks[:6]])
+
+        prompt = (
+            "Provide a clean, direct 3-bullet point summary explaining what this document is about based on the context:\n\n"
+            f"Sections Found: {', '.join(sections[:5])}\n\nContext:\n{snippets}\n\nSummary:"
+        )
+
+        return self._api_generate(prompt, context_chunks, user_query="overview summary", max_tokens=300)
 
     def generate_grounded_answer(
         self,
@@ -152,7 +154,7 @@ class LocalGenerator:
             "You are a professional, accurate, and concise RAG assistant.\n"
             "CRITICAL INSTRUCTIONS:\n"
             "1. Synthesize a clean, natural-language answer to the user's question using ONLY the facts explicitly provided in the Context below.\n"
-            "2. NEVER dump raw unformatted chunk blocks.\n"
+            "2. NEVER dump raw unformatted chunk blocks or list cell numbers.\n"
             "3. If the user asks for specific information (such as job placement or company names) and the Context only lists general qualifications or background, explicitly state what is in the document and clarify what is missing.\n"
             "4. Be direct, precise, and professional."
         )
