@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from app.rag.pipeline import AdvancedRAGPipeline
 from app.ingestion.service import DocumentIngestionService
 from app.schemas.document import QueryResponse
+from app.core.config import settings
 
 rag_pipeline: AdvancedRAGPipeline = None
 ingestion_service: DocumentIngestionService = None
@@ -29,9 +30,13 @@ async def lifespan(app: FastAPI):
     global rag_pipeline, ingestion_service
     print(">>> Starting up Local RAG API services...")
     rag_pipeline = AdvancedRAGPipeline(
-        storage_path="./data/qdrant_db",
-        collection_name="production_coll",
-        bm25_path="./data/production_bm25.pkl"
+        storage_path=settings.QDRANT_STORAGE_PATH,
+        collection_name=settings.QDRANT_COLLECTION_NAME,
+        bm25_path=settings.BM25_INDEX_PATH,
+        qdrant_url=settings.QDRANT_URL,
+        qdrant_api_key=settings.QDRANT_API_KEY,
+        generator_model=settings.GENERATOR_MODEL_ID,
+        reranker_model=settings.RERANKER_MODEL_ID
     )
     ingestion_service = DocumentIngestionService(
         embedder=rag_pipeline.embedder,

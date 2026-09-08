@@ -1,22 +1,34 @@
 import uuid
 import os
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
 from app.schemas.document import DocumentChunk
 
 class LocalVectorStore:
-    def __init__(self, storage_path: str = "./data/qdrant_db", collection_name: str = "rag_chunks"):
-        os.makedirs(storage_path, exist_ok=True)
-        try:
-            self.client = QdrantClient(path=storage_path)
-        except RuntimeError as e:
-            if "already accessed by another instance" in str(e):
-                print(f"❌ Error: Qdrant database directory '{storage_path}' is locked by another running Python process (e.g. background script, worker process, or Streamlit app).")
-                print("   Please terminate other running instances of the application or background tests and retry.")
-            raise e
+    def __init__(
+        self,
+        storage_path: str = "./data/qdrant_db",
+        collection_name: str = "rag_chunks",
+        url: Optional[str] = None,
+        api_key: Optional[str] = None
+    ):
         self.collection_name = collection_name
         self.vector_dim = 1024  # BGE-M3 dense dimension
+
+        if url and url.strip():
+            print(f"[Qdrant DB] Connecting to Qdrant Database Server at {url.strip()}...")
+            self.client = QdrantClient(url=url.strip(), api_key=api_key)
+        else:
+            print(f"[Qdrant Local] Using Qdrant Local Disk Storage at '{storage_path}'...")
+            os.makedirs(storage_path, exist_ok=True)
+            try:
+                self.client = QdrantClient(path=storage_path)
+            except RuntimeError as e:
+                if "already accessed by another instance" in str(e):
+                    print(f"[Qdrant Error] Qdrant database directory '{storage_path}' is locked by another running Python process (e.g. background script, worker process, or Streamlit app).")
+                    print("   Please terminate other running instances of the application or background tests and retry.")
+                raise e
 
         self._ensure_collection()
 

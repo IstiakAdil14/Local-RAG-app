@@ -10,9 +10,20 @@ from app.rag.hybrid_search import HybridSearchEngine
 from app.rag.reranker import LocalCrossEncoderReranker
 
 class BaseLineRAGPipeline:
-    def __init__(self, storage_path: str = "./data/qdrant_db", collection_name: str = "rag_chunks"):
+    def __init__(
+        self,
+        storage_path: str = "./data/qdrant_db",
+        collection_name: str = "rag_chunks",
+        qdrant_url: str = None,
+        qdrant_api_key: str = None
+    ):
         self.embedder = LocalEmbeddingEngine()
-        self.vector_store = LocalVectorStore(storage_path=storage_path, collection_name=collection_name)
+        self.vector_store = LocalVectorStore(
+            storage_path=storage_path,
+            collection_name=collection_name,
+            url=qdrant_url,
+            api_key=qdrant_api_key
+        )
         self.generator = LocalGenerator()
 
     def query(self, user_query: str, top_k: int = 3) -> QueryResponse:
@@ -64,11 +75,18 @@ class AdvancedRAGPipeline:
         collection_name: str = "rag_chunks",
         bm25_path: str = "./data/hybrid_bm25.pkl",
         reranker_model: str = "BAAI/bge-reranker-base",
-        generator_model: str = "Qwen/Qwen2.5-0.5B-Instruct"
+        generator_model: str = "Qwen/Qwen2.5-0.5B-Instruct",
+        qdrant_url: str = None,
+        qdrant_api_key: str = None
     ):
         print(">>> Initializing Advanced RAG Components...")
         self.embedder = LocalEmbeddingEngine()
-        self.vector_store = LocalVectorStore(storage_path=storage_path, collection_name=collection_name)
+        self.vector_store = LocalVectorStore(
+            storage_path=storage_path,
+            collection_name=collection_name,
+            url=qdrant_url,
+            api_key=qdrant_api_key
+        )
         self.bm25_store = LocalBM25Store(index_path=bm25_path)
 
         self.hybrid_engine = HybridSearchEngine(

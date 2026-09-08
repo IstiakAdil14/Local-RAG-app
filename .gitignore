@@ -1,5 +1,6 @@
 # Sensitive credentials
 .env
+.env.example                                                                                                                                                                                                                 
 
 # Python virtual environments & bytecode
 venv/

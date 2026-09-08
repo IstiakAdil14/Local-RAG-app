@@ -1,5 +1,6 @@
 import os
 import uuid
+import tempfile
 import shutil
 from typing import Dict, List, Any
 from fastapi import UploadFile
@@ -23,33 +24,37 @@ class DocumentIngestionService:
         self.bm25_store = bm25_store
         self.upload_dir = upload_dir
         self.chunker = SemanticStructureChunker(max_chunk_size=1024)
-        os.makedirs(self.upload_dir, exist_ok=True)
     
-    async def ingest_file(self, file: UploadFile)-> Dict[str, Any]:
+    async def ingest_file(self, file: UploadFile) -> Dict[str, Any]:
         file_id = f"DOC_{uuid.uuid4().hex[:8].upper()}"
-        file_path = os.path.join(self.upload_dir, f"{file_id}_{file.filename}")
+        ext = os.path.splitext(file.filename)[1].lower()
 
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        # Stream upload into a temporary file that is automatically deleted after processing
+        with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as temp_file:
+            shutil.copyfileobj(file.file, temp_file)
+            temp_path = temp_file.name
 
-        pages = DocumentParser.parse(file_path)
+        try:
+            pages = DocumentParser.parse(temp_path)
+            chunks = self.chunker.chunk(pages, file_id, file.filename)
+            
+            if not chunks:
+                return {"file_id": file_id, "filename": file.filename, "chunks_indexed": 0}
+            
+            texts = [c.text for c in chunks]
+            embeddings = self.embedder.embed_texts(texts)
+            self.vector_store.index_chunks(chunks, embeddings)
+            self.bm25_store.index_chunks(chunks)
 
-        chunks = self.chunker.chunk(pages, file_id, file.filename)
-        
-        if not chunks:
-            return {"file_id": file_id, "filename": file.filename, "chunks_indexed": 0}
-        
-        texts = [c.text for c in chunks]
-        embeddings = self.embedder.embed_texts(texts)
-        self.vector_store.index_chunks(chunks, embeddings)
-        self.bm25_store.index_chunks(chunks)
-
-        return{
-            "file_id": file_id,
-            "filename": file.filename,
-            "chunks_indexed": len(chunks),
-            "pages_parsed": len(pages)
-        }
+            return {
+                "file_id": file_id,
+                "filename": file.filename,
+                "chunks_indexed": len(chunks),
+                "pages_parsed": len(pages)
+            }
+        finally:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
 
     def clear_database(self) -> Dict[str, str]:
         self.vector_store.clear()

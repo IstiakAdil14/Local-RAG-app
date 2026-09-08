@@ -1,28 +1,30 @@
 import os
 import pickle
 import re
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from rank_bm25 import BM25Okapi
 from app.schemas.document import DocumentChunk
 
 class LocalBM25Store:
-    def __init__(self, index_path: str ="./data/bm25_index/index.pkl"):
+    def __init__(self, index_path: Optional[str] = None):
         self.index_path = index_path
         self.bm25: BM25Okapi = None
         self.chunks: List[DocumentChunk] = []
         self._load_index()
 
-    def _tokenize(self,text: str) -> List[str]:
+    def _tokenize(self, text: str) -> List[str]:
         return re.findall(r"\w+", text.lower())
 
     def _load_index(self):
-        if os.path.exists(self.index_path):
+        if self.index_path and os.path.exists(self.index_path):
             with open(self.index_path, "rb") as f:
                 data = pickle.load(f)
                 self.bm25 = data["bm25"]
                 self.chunks = data["chunks"]
 
     def save_index(self):
+        if not self.index_path:
+            return
         os.makedirs(os.path.dirname(self.index_path), exist_ok=True)
         with open(self.index_path, "wb") as f:
             pickle.dump({

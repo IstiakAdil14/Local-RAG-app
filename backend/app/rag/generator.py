@@ -38,14 +38,18 @@ class LocalGenerator:
         ])
 
         system_instruction = (
-            "You are a strictly grounded RAG assistant. Your task is to answer the user query based ONLY and EXCLUSIVELY on the clear facts in the provided Context below. "
-            "Do NOT use external pre-trained knowledge or make assumptions beyond the text. "
-            "If the Context does not explicitly contain the answer, reply EXACTLY: 'I could not find this information in the provided documents.'"
+            "You are a strictly grounded, accurate, and concise RAG assistant.\n"
+            "CRITICAL INSTRUCTIONS:\n"
+            "1. Answer the user query using ONLY explicit facts found directly in the Context below.\n"
+            "2. Be direct, precise, and concise. Provide ONLY the specific information requested.\n"
+            "3. Do NOT include conversational filler, greetings, introductory boilerplate, or unasked background information.\n"
+            "4. Do NOT make assumptions, speculate, or draw from external knowledge outside the text.\n"
+            "5. If the Context does not explicitly contain the answer, reply EXACTLY: 'I could not find this information in the provided documents.'"
         )
 
         messages = [
             {"role": "system", "content": system_instruction},
-            {"role": "user", "content": f"Context:\n{formatted_context}\n\nQuestion: {query}\n\nAnswer:"}
+            {"role": "user", "content": f"Context:\n{formatted_context}\n\nQuestion: {query}\n\nDirect Answer:"}
         ]
 
         prompt_text = self.tokenizer.apply_chat_template(
@@ -63,8 +67,16 @@ class LocalGenerator:
                 max_new_tokens=max_tokens,
                 use_cache=True,
                 do_sample=False,
+                repetition_penalty=1.15,
                 pad_token_id=self.tokenizer.eos_token_id
             )
 
         gen_tokens = output_tokens[0][inputs["input_ids"].shape[1]:]
-        return self.tokenizer.decode(gen_tokens, skip_special_tokens=True).strip()
+        raw_answer = self.tokenizer.decode(gen_tokens, skip_special_tokens=True).strip()
+
+        # Clean up common model prefixes and boilerplate
+        for prefix in ["Direct Answer:", "Answer:", "Summary:", "Based on the context,", "According to the provided documents,"]:
+            if raw_answer.startswith(prefix):
+                raw_answer = raw_answer[len(prefix):].strip()
+
+        return raw_answer
