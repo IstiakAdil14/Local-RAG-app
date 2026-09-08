@@ -167,13 +167,14 @@ class AdvancedRAGPipeline:
         total_start = time.time()
 
         is_global = self._is_global_query(user_query)
-        effective_candidates = max(retrieval_candidates, 12) if is_global else max(retrieval_candidates, 8)
-        effective_top_n = max(top_n_rerank, 6) if is_global else max(top_n_rerank, 4)
+        effective_candidates = max(retrieval_candidates, 15) if is_global else max(retrieval_candidates, 8)
+        effective_top_n = max(top_n_rerank, 8) if is_global else max(top_n_rerank, 4)
 
+        search_query = "document overview summary main sections cells topics content guide" if is_global else user_query
         candidates = self.hybrid_engine.search(
-            query=user_query,
+            query=search_query,
             top_k=effective_candidates,
-            candidate_pool=max(15, effective_candidates * 2)
+            candidate_pool=max(20, effective_candidates * 2)
         )
         retrieval_ms = (time.time() - total_start) * 1000.0
         
