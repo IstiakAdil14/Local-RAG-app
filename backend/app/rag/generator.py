@@ -1,10 +1,10 @@
 import os
 import requests
+import re
 from pathlib import Path
 from typing import List, Dict, Any
 
 def is_cloud_environment() -> bool:
-    # Detect Streamlit Cloud, Render, or low RAM environments (< 3GB RAM)
     if os.getenv("STREAMLIT_SERVER_PORT") or os.getenv("HOME") == "/home/adminuser" or "/mount/src" in str(Path.cwd()):
         return True
     try:
@@ -48,38 +48,66 @@ class LocalGenerator:
             print(f"⚠️ Local generator loading skipped ({e}). Using Serverless API.")
             self.use_api = True
 
-    def _api_generate(self, prompt_text: str, max_tokens: int = 250) -> str:
+    def _api_generate(self, prompt_text: str, context_chunks: List[Dict[str, Any]], max_tokens: int = 250) -> str:
         headers = {}
         hf_token = os.getenv("HF_TOKEN")
         if hf_token:
             headers["Authorization"] = f"Bearer {hf_token}"
 
-        try:
-            from huggingface_hub import InferenceClient
-            client = InferenceClient(model=self.model_id, token=hf_token)
-            res = client.text_generation(prompt_text, max_new_tokens=max_tokens)
-            if res:
-                return res.strip()
-        except Exception:
-            pass
+        models_to_try = [
+            self.model_id,
+            "Qwen/Qwen2.5-72B-Instruct",
+            "meta-llama/Llama-3.2-3B-Instruct",
+            "mistralai/Mistral-7B-Instruct-v0.2",
+            "HuggingFaceH4/zephyr-7b-beta"
+        ]
 
-        try:
-            url = f"https://api-inference.huggingface.co/models/{self.model_id}"
-            payload = {
-                "inputs": prompt_text,
-                "parameters": {"max_new_tokens": max_tokens, "return_full_text": False}
-            }
-            res = requests.post(url, headers=headers, json=payload, timeout=20)
-            if res.status_code == 200:
-                data = res.json()
-                if isinstance(data, list) and len(data) > 0:
-                    return data[0].get("generated_text", "").strip()
-                elif isinstance(data, dict):
-                    return data.get("generated_text", "").strip()
-        except Exception:
-            pass
+        # 1. Try Hugging Face InferenceClient
+        for model in models_to_try:
+            try:
+                from huggingface_hub import InferenceClient
+                client = InferenceClient(model=model, token=hf_token)
+                res = client.text_generation(prompt_text, max_new_tokens=max_tokens)
+                if res and len(res.strip()) > 5:
+                    return res.strip()
+            except Exception:
+                continue
 
-        return "I could not generate a response from the document context."
+        # 2. Try HTTP REST request
+        for model in models_to_try:
+            try:
+                url = f"https://api-inference.huggingface.co/models/{model}"
+                payload = {
+                    "inputs": prompt_text,
+                    "parameters": {"max_new_tokens": max_tokens, "return_full_text": False}
+                }
+                res = requests.post(url, headers=headers, json=payload, timeout=12)
+                if res.status_code == 200:
+                    data = res.json()
+                    ans = ""
+                    if isinstance(data, list) and len(data) > 0:
+                        ans = data[0].get("generated_text", "").strip()
+                    elif isinstance(data, dict):
+                        ans = data.get("generated_text", "").strip()
+                    if ans and len(ans) > 5:
+                        return ans
+            except Exception:
+                continue
+
+        # 3. Grounded Extractive Summary Fallback (Guarantees clean grounded response from context)
+        extracted_facts = []
+        for c in context_chunks:
+            text = c.get("text", "").strip()
+            if text:
+                # Clean multiple newlines and spaces
+                cleaned = re.sub(r"\s+", " ", text)
+                extracted_facts.append(cleaned[:300])
+
+        if extracted_facts:
+            summary = "\n\n".join([f"• {fact}..." for fact in extracted_facts[:4]])
+            return f"**Summary from Document Context:**\n\n{summary}"
+
+        return "I could not find this information in the provided documents."
 
     def generate_grounded_answer(
         self,
@@ -143,7 +171,7 @@ class LocalGenerator:
                 self.use_api = True
 
         prompt_fallback = f"{system_instruction}\n\nContext:\n{formatted_context}\n\nQuestion: {query}\n\nDirect Answer:"
-        raw_answer = self._api_generate(prompt_fallback, max_tokens=max_tokens)
+        raw_answer = self._api_generate(prompt_fallback, context_chunks, max_tokens=max_tokens)
         for prefix in ["Direct Answer:", "Answer:", "Summary:", "Based on the context,", "According to the provided documents,"]:
             if raw_answer.startswith(prefix):
                 raw_answer = raw_answer[len(prefix):].strip()
