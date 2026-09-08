@@ -71,11 +71,10 @@ class DocumentParser:
 
     @staticmethod
     def extract_document_title(file_path: str, pages_data: List[Dict[str, Any]]) -> str:
-        filename_base = os.path.splitext(os.path.basename(file_path))[0].strip()
+        filename_base = os.path.splitext(os.path.basename(file_path))[0].strip() if file_path else ""
         
         # 1. Try PyMuPDF PDF metadata if available
-        ext = os.path.splitext(file_path)[1].lower()
-        if ext == ".pdf":
+        if file_path and os.path.splitext(file_path)[1].lower() == ".pdf":
             try:
                 doc = fitz.open(file_path)
                 meta_title = (doc.metadata.get("title") or "").strip()
@@ -88,16 +87,51 @@ class DocumentParser:
         if pages_data:
             first_page_text = pages_data[0].get("text", "")
             lines = [l.strip() for l in first_page_text.split("\n") if l.strip()]
-            for line in lines[:6]:
-                # Look for course titles, document titles, or heading patterns (e.g. "B413 Midwifery, P-II ...")
-                if len(line) > 5 and not line.lower().startswith(("page ", "http", "www", "chapter")):
-                    clean_line = re.sub(r'^(title|course|subject|document)\s*[:\-]\s*', '', line, flags=re.I).strip()
-                    if len(clean_line) > 5:
-                        return clean_line
-                        
+
+            # 2a. Check for explicit Subject / Course / Title / Topic prefixes
+            for idx, line in enumerate(lines[:10]):
+                if re.search(r'^(subject|course|title|topic|document)\s*[:\-]', line, re.I):
+                    clean_subj = re.sub(r'^(subject|course|title|topic|document)\s*[:\-]\s*', '', line, flags=re.I).strip()
+                    if clean_subj and len(clean_subj) > 2:
+                        paper_line = ""
+                        if idx + 1 < len(lines):
+                            next_line = lines[idx + 1].strip()
+                            if re.search(r'^(paper|part|sub|module|unit)\s*([ivx0-9]+|one|two|three|four)?\s*[:\-]', next_line, re.I) or "paper" in next_line.lower():
+                                paper_line = next_line
+                        if paper_line:
+                            return f"{clean_subj} {paper_line}"
+                        return clean_subj
+
+            # 2b. Filter out institutional headers, exam headers, forms, and instructions
+            noise_patterns = [
+                r'\b(college|university|school|institute|academy|department|faculty|board)\b',
+                r'\b(midterm|examination|final exam|test|assignment|question paper|term exam)\b',
+                r'\b(time\s*:|full marks\s*:|marks\s*:|hours|minutes|duration)\b',
+                r'\b(instruction|answer script|group\s*[a-z0-9])\b',
+                r'^(page\s*\d+|http|www|chapter)'
+            ]
+
+            filtered_lines = []
+            for line in lines[:8]:
+                if len(line) < 4:
+                    continue
+                if any(re.search(pat, line, re.I) for pat in noise_patterns):
+                    continue
+                filtered_lines.append(line)
+
+            if filtered_lines:
+                # Check if top remaining line is followed by a Paper/Part line
+                top_line = filtered_lines[0]
+                if len(filtered_lines) > 1 and re.search(r'^(paper|part|sub|module|unit)\s*', filtered_lines[1], re.I):
+                    return f"{top_line} {filtered_lines[1]}"
+                return top_line
+
         # 3. Clean Filename fallback
-        clean_fn = re.sub(r'[_\-]+', ' ', filename_base).strip()
-        return clean_fn if clean_fn else filename_base
+        if filename_base:
+            clean_fn = re.sub(r'[_\-]+', ' ', filename_base).strip()
+            if clean_fn and len(clean_fn) > 2:
+                return clean_fn
+        return filename_base or "Untitled Document"
 
     @classmethod
     def parse(cls, file_path: str) -> List[Dict[str, Any]]:

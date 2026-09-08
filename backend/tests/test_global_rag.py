@@ -57,6 +57,22 @@ def test_parser_title_extraction():
     title = DocumentParser.extract_document_title("sample_course.pdf", pages)
     assert title == "B413 Midwifery, P-II (Gynecological & Obstetrical Nursing)"
 
+def test_parser_title_extraction_with_exam_header():
+    exam_text = (
+        "North East Nursing College, Sylhet\n"
+        "4th Year B.Sc. in Nursing Midterm Examination, July-2025\n"
+        "Subject: B-431 Midwifery & Obstetrical Nursing\n"
+        "Paper II: Gynecological and Obstetrical Nursing\n"
+        "Type of Questions: SAQ\n"
+        "Time: 2 hours 40 minutes\n"
+        "Full marks: 70"
+    )
+    pages = [{"page_number": 1, "text": exam_text}]
+    extracted_title = DocumentParser.extract_document_title("exam_paper.pdf", pages)
+    assert "North East Nursing College" not in extracted_title
+    assert "B-431 Midwifery" in extracted_title
+    assert "Gynecological and Obstetrical Nursing" in extracted_title
+
 def test_pipeline_title_and_metadata_routing():
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = os.path.join(tmpdir, "qdrant_db")

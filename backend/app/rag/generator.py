@@ -255,14 +255,35 @@ class LocalGenerator:
 
         # 1. Title requests
         if any(k in q_lower for k in ["title", "called", "subject", "course"]):
+            from app.ingestion.parser import DocumentParser
+
+            # If stored title looks like an institutional/exam header, try re-extracting from first page
+            is_institutional = any(re.search(pat, title, re.I) for pat in [
+                r'\b(college|university|school|institute|academy|department|faculty)\b',
+                r'\b(midterm|examination|final exam|test|question paper)\b'
+            ]) if title else False
+
+            if title and not is_institutional and len(title) > 3:
+                return f"The title of this document is '{title}'."
+
+            if first_page:
+                extracted = DocumentParser.extract_document_title("", [{"text": first_page}])
+                if extracted and len(extracted) > 3 and not any(re.search(pat, extracted, re.I) for pat in [
+                    r'\b(college|university|school|institute|academy)\b',
+                    r'\b(midterm|examination|final exam)\b'
+                ]):
+                    return f"The title of this document is '{extracted}'."
+
             if title and len(title) > 3:
                 return f"The title of this document is '{title}'."
+
             if first_page:
-                lines = [l.strip() for l in first_page.split("\n") if len(l.strip()) > 5]
-                if lines:
-                    return f"The title of this document is '{lines[0]}'."
+                extracted = DocumentParser.extract_document_title("", [{"text": first_page}])
+                if extracted and len(extracted) > 3:
+                    return f"The title of this document is '{extracted}'."
+
             if doc_name:
-                clean_name = os.path.splitext(doc_name)[0].replace("_", " ")
+                clean_name = os.path.splitext(doc_name)[0].replace("_", " ").replace("-", " ")
                 return f"The title of this document is '{clean_name}'."
 
         # 2. Page count requests
@@ -288,6 +309,10 @@ class LocalGenerator:
 
         # Title Extraction Fallback
         if any(k in q_lower for k in ["title of", "what is the title", "document title", "course title"]):
+            from app.ingestion.parser import DocumentParser
+            extracted = DocumentParser.extract_document_title("", [{"text": context_text}])
+            if extracted and len(extracted) > 3:
+                return extracted
             match = re.search(r"(?:Title|Course|Subject)\s*[:\-]\s*(.+?)(?=\s*[\n;]|$)", context_text, re.I)
             if match:
                 val = match.group(1).strip()
