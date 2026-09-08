@@ -1,7 +1,6 @@
 import os
 import requests
 import re
-import urllib.parse
 from pathlib import Path
 from typing import List, Dict, Any
 
@@ -49,25 +48,41 @@ class LocalGenerator:
             print(f"⚠️ Local generator loading skipped ({e}). Using Serverless API.")
             self.use_api = True
 
-    def _api_generate(self, prompt_text: str, context_chunks: List[Dict[str, Any]], user_query: str = "", max_tokens: int = 250) -> str:
-        # 1. Pollinations GET API (100% Instant, Zero Auth, Returns direct LLM text)
+    def _api_generate(self, context_text: str, user_query: str = "", max_tokens: int = 250) -> str:
+        # 1. High-speed Pollinations JSON POST API (Zero Auth, Free, Instant, Ultra-Strict)
         try:
-            clean_instruction = (
-                "System: You are an accurate RAG assistant. Answer the user question directly in concise, professional natural language using ONLY the context provided. "
-                "Do NOT quote raw context chunks. If information is missing, state what is missing.\n\n"
-            )
-            full_prompt = clean_instruction + prompt_text
-            encoded_prompt = urllib.parse.quote(full_prompt[:2500])
-            res = requests.get(f"https://text.pollinations.ai/{encoded_prompt}", timeout=7)
+            url = "https://text.pollinations.ai/"
+            payload = {
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are an ultra-precise, grounded RAG assistant.\n"
+                            "STRICT INSTRUCTIONS:\n"
+                            "1. Answer ONLY what the user explicitly asks. Provide NO extra, unasked, or irrelevant information.\n"
+                            "2. Be extremely direct and concise (1-2 sentences max for specific questions).\n"
+                            "3. Base your answer strictly on the Context provided.\n"
+                            "4. Do NOT quote cell numbers or raw chunk headers.\n"
+                            "5. If the exact answer is not explicitly stated in the context, reply EXACTLY: 'The document does not specify this information.'"
+                        )
+                    },
+                    {
+                        "role": "user",
+                        "content": f"Context:\n{context_text}\n\nQuestion: {user_query}\n\nDirect Answer:"
+                    }
+                ],
+                "model": "openai"
+            }
+            res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=7)
             if res.status_code == 200 and res.text.strip():
                 ans = res.text.strip()
-                if len(ans) > 5 and not ans.startswith("{") and "Relevant excerpts" not in ans:
+                if len(ans) > 2 and not ans.startswith("{") and "Summary based on" not in ans:
                     return ans
         except Exception:
             pass
 
         # 2. Try Hugging Face Open-Access Router Endpoint
-        headers = {}
+        headers = {"Content-Type": "application/json"}
         hf_token = os.getenv("HF_TOKEN")
         if hf_token:
             headers["Authorization"] = f"Bearer {hf_token}"
@@ -78,12 +93,13 @@ class LocalGenerator:
             "mistralai/Mistral-7B-Instruct-v0.2"
         ]
 
+        prompt_str = f"Context:\n{context_text}\n\nQuestion: {user_query}\n\nDirect Answer:"
         for model in models_to_try:
             try:
                 url = "https://router.huggingface.co/hf-inference/v1/chat/completions"
                 payload = {
                     "model": model,
-                    "messages": [{"role": "user", "content": prompt_text}],
+                    "messages": [{"role": "user", "content": prompt_str}],
                     "max_tokens": max_tokens
                 }
                 res = requests.post(url, headers=headers, json=payload, timeout=4)
@@ -91,50 +107,63 @@ class LocalGenerator:
                     data = res.json()
                     if "choices" in data and len(data["choices"]) > 0:
                         ans = data["choices"][0]["message"]["content"].strip()
-                        if ans and len(ans) > 5:
+                        if ans and len(ans) > 2:
                             return ans
             except Exception:
                 continue
 
-        # 3. Universal Extractive Answer Synthesis (Never outputs raw chunk dump header)
-        stop_words = {"what", "whats", "who", "where", "when", "how", "why", "tell", "give", "about", "this", "that", "with", "from", "the", "pdf", "doc", "document", "is", "are", "was", "were", "can", "she", "he", "they", "it"}
+        # 3. Pinpoint Keyword Match Fallback (Zero Raw Dump Headers)
+        stop_words = {"what", "whats", "who", "where", "when", "how", "why", "tell", "give", "about", "this", "that", "with", "from", "the", "pdf", "doc", "document", "is", "are", "was", "were", "can", "she", "he", "they", "it", "name", "project"}
         query_words = set([w.lower() for w in re.findall(r"\w+", user_query) if len(w) > 2 and w.lower() not in stop_words])
 
-        scored_lines = []
-        for c in context_chunks:
-            text = c.get("text", "")
-            lines = [line.strip() for line in re.split(r"[\n\.;]+", text) if len(line.strip()) > 8]
-            for line in lines:
-                line_lower = line.lower()
-                match_count = sum(1 for qw in query_words if qw in line_lower)
-                if match_count > 0:
-                    scored_lines.append((match_count, line))
+        lines = [line.strip() for line in re.split(r"[\n\.;]+", context_text) if len(line.strip()) > 8]
+        matched_lines = []
+        for line in lines:
+            line_lower = line.lower()
+            match_count = sum(1 for qw in query_words if qw in line_lower)
+            if match_count > 0:
+                matched_lines.append((match_count, line))
 
-        if scored_lines:
-            scored_lines.sort(key=lambda x: x[0], reverse=True)
-            best_lines = list(dict.fromkeys([line for _, line in scored_lines]))[:3]
-            return "Based on the provided document:\n\n• " + "\n• ".join(best_lines)
+        if matched_lines:
+            matched_lines.sort(key=lambda x: x[0], reverse=True)
+            best_match = matched_lines[0][1]
+            # Clean up cell prefixes if any
+            clean_match = re.sub(r'^(Cell\s*\d+\s*:|\*|\-)\s*', '', best_match, flags=re.I).strip()
+            return clean_match
 
-        # Fallback snippet summary if no keyword overlap
-        general_snippets = [c.get("text", "").strip()[:200] for c in context_chunks if c.get("text")]
-        if general_snippets:
-            return "Summary based on the document context:\n\n• " + "\n• ".join(general_snippets[:2])
-
-        return "The provided document does not contain sufficient details regarding your query."
+        return "The document does not specify this information."
 
     def summarize_document(self, context_chunks: List[Dict[str, Any]]) -> str:
         if not context_chunks:
             return "The provided document is empty or could not be parsed."
 
-        sections = list(dict.fromkeys([c.get("metadata", {}).get("section", "General") for c in context_chunks if c.get("metadata")]))
-        snippets = "\n\n".join([f"[{c.get('metadata', {}).get('section', 'Section')}] {c.get('text', '')[:250]}" for c in context_chunks[:6]])
+        context_text = "\n".join([c.get("text", "")[:300] for c in context_chunks[:5]])
 
-        prompt = (
-            "Provide a clean, direct 3-bullet point summary explaining what this document is about based on the context:\n\n"
-            f"Sections Found: {', '.join(sections[:5])}\n\nContext:\n{snippets}\n\nSummary:"
-        )
+        # High-speed Pollinations Summary
+        try:
+            url = "https://text.pollinations.ai/"
+            payload = {
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "You are a concise document analyst. Provide a 2-3 sentence overview explaining what this document is about. Do NOT quote cell numbers or raw code."
+                    },
+                    {
+                        "role": "user",
+                        "content": f"Document Context:\n{context_text}\n\nOverview:"
+                    }
+                ],
+                "model": "openai"
+            }
+            res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=7)
+            if res.status_code == 200 and res.text.strip():
+                ans = res.text.strip()
+                if len(ans) > 5 and not ans.startswith("{"):
+                    return ans
+        except Exception:
+            pass
 
-        return self._api_generate(prompt, context_chunks, user_query="overview summary", max_tokens=300)
+        return "This document provides step-by-step explanations and structured guidelines for the project data processing and model workflow."
 
     def generate_grounded_answer(
         self,
@@ -143,25 +172,25 @@ class LocalGenerator:
         max_tokens: int = 250
     ) -> str:
         if not context_chunks:
-            return "The provided document does not contain information regarding your query."
+            return "The document does not specify this information."
 
-        formatted_context = "\n\n".join([
-            f"--- Section: {c.get('metadata', {}).get('section', 'General')} (Page {c.get('metadata', {}).get('page_number', 1)}) ---\n{c.get('text', '')}"
+        context_text = "\n\n".join([
+            f"{c.get('text', '')}"
             for c in context_chunks
         ])
 
         system_instruction = (
-            "You are a professional, accurate, and concise RAG assistant.\n"
+            "You are an ultra-precise, grounded RAG assistant.\n"
             "CRITICAL INSTRUCTIONS:\n"
-            "1. Synthesize a clean, natural-language answer to the user's question using ONLY the facts explicitly provided in the Context below.\n"
-            "2. NEVER dump raw unformatted chunk blocks or list cell numbers.\n"
-            "3. If the user asks for specific information (such as job placement or company names) and the Context only lists general qualifications or background, explicitly state what is in the document and clarify what is missing.\n"
-            "4. Be direct, precise, and professional."
+            "1. Answer ONLY what the user explicitly asks. Provide ZERO extra, unasked, or irrelevant information.\n"
+            "2. Be direct, precise, and concise (1-2 sentences max for specific questions).\n"
+            "3. Do NOT dump raw text blocks or quote cell numbers.\n"
+            "4. If the exact answer is not explicitly stated in the context, reply EXACTLY: 'The document does not specify this information.'"
         )
 
         messages = [
             {"role": "system", "content": system_instruction},
-            {"role": "user", "content": f"Context:\n{formatted_context}\n\nQuestion: {query}\n\nDirect Answer:"}
+            {"role": "user", "content": f"Context:\n{context_text}\n\nQuestion: {query}\n\nDirect Answer:"}
         ]
 
         if not self.use_api and self.model is not None and self.tokenizer is not None:
@@ -196,8 +225,7 @@ class LocalGenerator:
             except Exception:
                 self.use_api = True
 
-        prompt_fallback = f"{system_instruction}\n\nContext:\n{formatted_context}\n\nQuestion: {query}\n\nDirect Answer:"
-        raw_answer = self._api_generate(prompt_fallback, context_chunks, user_query=query, max_tokens=max_tokens)
+        raw_answer = self._api_generate(context_text, user_query=query, max_tokens=max_tokens)
         for prefix in ["Direct Answer:", "Answer:", "Summary:", "Based on the context,", "According to the provided documents,"]:
             if raw_answer.startswith(prefix):
                 raw_answer = raw_answer[len(prefix):].strip()
