@@ -1,5 +1,15 @@
 import streamlit as st
 import requests
+import threading
+import time
+import os
+import sys
+from pathlib import Path
+
+# Ensure root import paths are set
+project_root = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(project_root))
+sys.path.insert(0, str(project_root / "backend"))
 
 API_BASE_URL = "http://127.0.0.1:8000/api/v1"
 
@@ -8,6 +18,35 @@ st.set_page_config(
     page_icon=":material/auto_stories:",
     layout="wide"
 )
+
+# Auto-start embedded FastAPI backend if not already active
+@st.cache_resource
+def ensure_backend_running():
+    try:
+        resp = requests.get(f"{API_BASE_URL}/health", timeout=1)
+        if resp.status_code == 200:
+            return True
+    except Exception:
+        pass
+
+    def run_uvicorn():
+        import uvicorn
+        from app.main import app
+        uvicorn.run(app, host="127.0.0.1", port=8000, log_level="warning")
+
+    t = threading.Thread(target=run_uvicorn, daemon=True)
+    t.start()
+
+    for _ in range(40):
+        try:
+            resp = requests.get(f"{API_BASE_URL}/health", timeout=1)
+            if resp.status_code == 200:
+                return True
+        except Exception:
+            time.sleep(0.5)
+    return False
+
+ensure_backend_running()
 
 # --- Session State Initialization ---
 if "messages" not in st.session_state:
@@ -67,7 +106,7 @@ with st.sidebar:
             st.error(f"Connection error: {e}")
 
 # ==============================================================================
-# Main Workspace (Completely outside the sidebar block)
+# Main Workspace
 # ==============================================================================
 st.title("Fully Local RAG System")
 st.caption("Hybrid RRF (BGE-M3 + BM25) ➔ Neural Reranker (BGE) ➔ Qwen2.5-0.5B-Instruct")
@@ -146,4 +185,4 @@ if prompt := st.chat_input("Ask a question about your indexed documents..."):
                     st.error(f"API Error ({resp.status_code}): {resp.text}")
 
             except requests.exceptions.ConnectionError:
-                st.error("Could not reach the FastAPI server. Make sure Uvicorn is active on http://127.0.0.1:8000.")
+                st.error("Could not reach the backend server. Starting backend services...")

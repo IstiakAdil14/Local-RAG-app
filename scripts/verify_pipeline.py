@@ -24,7 +24,7 @@ def test_full_pipeline():
     print(f"  Total End-to-End: {response.total_latency_ms} ms")
 
     assert len(response.citations) > 0
-    print("\n✓ Full Advanced RAG Pipeline verified successfully.")
+    print("\n[OK] Full Advanced RAG Pipeline verified successfully.")
     
 if __name__ == "__main__":
     test_full_pipeline()
