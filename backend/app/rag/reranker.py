@@ -1,33 +1,41 @@
 import os
-import torch
-from sentence_transformers import CrossEncoder
 from typing import List, Dict, Any
 
-# Maximize CPU multithreading for fast Cross-Encoder reranking
-torch.set_num_threads(os.cpu_count() or 8)
-
 class LocalCrossEncoderReranker:
-    def __init__(self, model_name: str="BAAI/bge-reranker-base", device: str = None):
-        if device is None:
-            self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        else:
-            self.device = device
-        
-        print(f"Loading cross-encoder reranker '{model_name}' on device: {self.device}...")
-        self.model = CrossEncoder(model_name, device=self.device)
+    def __init__(self, model_name: str = "BAAI/bge-reranker-base", device: str = None):
+        self.model_name = model_name
+        self.model = None
 
-    def rerank(self, query: str, candidates: List[Dict[str, Any]], top_n: int=3) -> List[Dict[str, Any]]:
+        try:
+            import torch
+            from sentence_transformers import CrossEncoder
+            if device is None:
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+            print(f"Loading cross-encoder reranker '{model_name}' on device: {device}...")
+            self.model = CrossEncoder(model_name, device=device)
+        except Exception as e:
+            print(f"⚠️ CrossEncoder loading skipped ({e}). Using candidate RRF score fallback.")
+            self.model = None
+
+    def rerank(self, query: str, candidates: List[Dict[str, Any]], top_n: int = 3) -> List[Dict[str, Any]]:
         if not candidates:
             return []
-        
-        pairs = [(query, c['text']) for c in candidates]
-        scores = self.model.predict(pairs, show_progress_bar=False)
 
-        reranked = []
-        for candidate, score in zip(candidates, scores):
-            item = candidate.copy()
-            item["rerank_score"] = float(score)
-            reranked.append(item)
+        if self.model is not None:
+            try:
+                pairs = [(query, c['text']) for c in candidates]
+                scores = self.model.predict(pairs, show_progress_bar=False)
 
-        reranked.sort(key=lambda x:x["rerank_score"], reverse=True)
-        return reranked[:top_n]
+                reranked = []
+                for candidate, score in zip(candidates, scores):
+                    item = candidate.copy()
+                    item["rerank_score"] = float(score)
+                    reranked.append(item)
+
+                reranked.sort(key=lambda x: x["rerank_score"], reverse=True)
+                return reranked[:top_n]
+            except Exception:
+                pass
+
+        # Fallback to existing candidate ordering (RRF score)
+        return candidates[:top_n]
