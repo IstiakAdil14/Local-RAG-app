@@ -320,6 +320,12 @@ class LocalGenerator:
                 if val and len(val) > 3:
                     return val
 
+        # Paper Extraction
+        if any(k in q_lower for k in ["paper", "which paper", "paper number", "paper name"]):
+            paper_match = re.search(r"(Paper\s*(?:II|I|III|IV|\d+)?\s*[:\-]?\s*.+?)(?=\s*[\n;]|$)", context_text, re.I)
+            if paper_match:
+                return paper_match.group(1).strip()
+
         # Experience / Nursing Experience Extraction
         if any(k in q_lower for k in ["experience", "experiences", "worked", "duty", "ward", "position"]):
             exp_match = re.search(r"(?:^|\n)\s*(?:EXPERIENCE|WORK\s*EXPERIENCE|PROFESSIONAL\s*EXPERIENCE|NURSING\s*EXPERIENCE)\s*[:\-]?\s*([\s\S]+?)(?=\s*(?:\n\s*[A-Z\s]{4,}\s*[:\-]|EDUCATION|QUALIFICATION|ACADEMIC|REFERENCE|DECLARATION|SKILLS|PROJECTS|TRAINING|HOBBIES|$))", context_text, re.I)

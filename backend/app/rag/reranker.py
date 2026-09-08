@@ -13,6 +13,11 @@ def is_cloud_environment() -> bool:
         pass
     return False
 
+import threading
+
+_RERANKER_MODEL_CACHE: Dict[str, Any] = {}
+_RERANKER_LOCK = threading.Lock()
+
 class LocalCrossEncoderReranker:
     def __init__(self, model_name: str = "BAAI/bge-reranker-base", device: str = None):
         self.model_name = model_name
@@ -22,16 +27,23 @@ class LocalCrossEncoderReranker:
             print(f"☁️ Cloud environment detected. Bypassing heavy CrossEncoder reranker ({model_name}).")
             return
 
-        try:
-            import torch
-            from sentence_transformers import CrossEncoder
-            if device is None:
-                device = "cuda" if torch.cuda.is_available() else "cpu"
-            print(f"Loading cross-encoder reranker '{model_name}' on device: {device}...")
-            self.model = CrossEncoder(model_name, device=device)
-        except Exception as e:
-            print(f"⚠️ CrossEncoder loading skipped ({e}). Using candidate RRF score fallback.")
-            self.model = None
+        with _RERANKER_LOCK:
+            if model_name in _RERANKER_MODEL_CACHE:
+                self.model = _RERANKER_MODEL_CACHE[model_name]
+                return
+
+            try:
+                import torch
+                from sentence_transformers import CrossEncoder
+                if device is None:
+                    device = "cuda" if torch.cuda.is_available() else "cpu"
+                print(f"Loading cross-encoder reranker '{model_name}' on device: {device}...")
+                loaded_model = CrossEncoder(model_name, device=device)
+                _RERANKER_MODEL_CACHE[model_name] = loaded_model
+                self.model = loaded_model
+            except Exception as e:
+                print(f"⚠️ CrossEncoder loading skipped ({e}). Using candidate RRF score fallback.")
+                self.model = None
 
     def rerank(self, query: str, candidates: List[Dict[str, Any]], top_n: int = 3) -> List[Dict[str, Any]]:
         if not candidates:

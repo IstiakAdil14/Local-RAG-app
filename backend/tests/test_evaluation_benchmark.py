@@ -110,27 +110,32 @@ def setup_benchmark_pipeline(tmpdir):
 def test_global_rag_benchmark_suite():
     with tempfile.TemporaryDirectory() as tmpdir:
         pipeline = setup_benchmark_pipeline(tmpdir)
+        try:
+            passed_count = 0
+            total_count = len(BENCHMARK_MATRIX)
 
-        passed_count = 0
-        total_count = len(BENCHMARK_MATRIX)
+            print("\n===== RUNNING GLOBAL RAG BENCHMARK EVALUATION =====")
+            for item in BENCHMARK_MATRIX:
+                query = item["query"]
+                cat = item["category"]
+                expected = item["expected_keyword"]
+                should_abstain = item["should_abstain"]
 
-        print("\n===== RUNNING GLOBAL RAG BENCHMARK EVALUATION =====")
-        for item in BENCHMARK_MATRIX:
-            query = item["query"]
-            cat = item["category"]
-            expected = item["expected_keyword"]
-            should_abstain = item["should_abstain"]
+                res = pipeline.query(query)
+                ans = res.answer
 
-            res = pipeline.query(query)
-            ans = res.answer
+                if should_abstain:
+                    assert "does not specify" in ans.lower() or "not specify" in ans.lower(), f"Failed abstention check for query: {query}. Answer was: {ans}"
+                else:
+                    assert expected.lower() in ans.lower(), f"Failed accuracy check for query: [{query}] ({cat}). Expected keyword '{expected}' in answer: '{ans}'"
 
-            if should_abstain:
-                assert "does not specify" in ans.lower() or "not specify" in ans.lower(), f"Failed abstention check for query: {query}. Answer was: {ans}"
-            else:
-                assert expected.lower() in ans.lower(), f"Failed accuracy check for query: [{query}] ({cat}). Expected keyword '{expected}' in answer: '{ans}'"
+                passed_count += 1
 
-            passed_count += 1
-
-        accuracy_pct = (passed_count / float(total_count)) * 100.0
-        print(f"\n✅ BENCHMARK ACCURACY: {accuracy_pct:.1f}% ({passed_count}/{total_count} Passed)")
-        assert accuracy_pct == 100.0
+            accuracy_pct = (passed_count / float(total_count)) * 100.0
+            print(f"\n✅ BENCHMARK ACCURACY: {accuracy_pct:.1f}% ({passed_count}/{total_count} Passed)")
+            assert accuracy_pct == 100.0
+        finally:
+            try:
+                pipeline.vector_store.client.close()
+            except Exception:
+                pass
