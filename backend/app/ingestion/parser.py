@@ -69,6 +69,36 @@ class DocumentParser:
 
         return extracted_pages
 
+    @staticmethod
+    def extract_document_title(file_path: str, pages_data: List[Dict[str, Any]]) -> str:
+        filename_base = os.path.splitext(os.path.basename(file_path))[0].strip()
+        
+        # 1. Try PyMuPDF PDF metadata if available
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext == ".pdf":
+            try:
+                doc = fitz.open(file_path)
+                meta_title = (doc.metadata.get("title") or "").strip()
+                if meta_title and len(meta_title) > 3 and not meta_title.lower().startswith("microsoft word") and not meta_title.lower().endswith(".pdf"):
+                    return meta_title
+            except Exception:
+                pass
+                
+        # 2. Heuristic extraction from First Page lines
+        if pages_data:
+            first_page_text = pages_data[0].get("text", "")
+            lines = [l.strip() for l in first_page_text.split("\n") if l.strip()]
+            for line in lines[:6]:
+                # Look for course titles, document titles, or heading patterns (e.g. "B413 Midwifery, P-II ...")
+                if len(line) > 5 and not line.lower().startswith(("page ", "http", "www", "chapter")):
+                    clean_line = re.sub(r'^(title|course|subject|document)\s*[:\-]\s*', '', line, flags=re.I).strip()
+                    if len(clean_line) > 5:
+                        return clean_line
+                        
+        # 3. Clean Filename fallback
+        clean_fn = re.sub(r'[_\-]+', ' ', filename_base).strip()
+        return clean_fn if clean_fn else filename_base
+
     @classmethod
     def parse(cls, file_path: str) -> List[Dict[str, Any]]:
         ext = os.path.splitext(file_path)[1].lower()

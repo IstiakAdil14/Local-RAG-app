@@ -41,7 +41,9 @@ async def lifespan(app: FastAPI):
     ingestion_service = DocumentIngestionService(
         embedder=rag_pipeline.embedder,
         vector_store=rag_pipeline.vector_store,
-        bm25_store=rag_pipeline.bm25_store
+        bm25_store=rag_pipeline.bm25_store,
+        doc_metadata_store=rag_pipeline.doc_metadata_store,
+        generator=rag_pipeline.generator
     )
     yield
     print(">>> Shutting down Local RAG API services...")

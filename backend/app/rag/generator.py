@@ -3,7 +3,7 @@ import requests
 import re
 import urllib.parse
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 def is_cloud_environment() -> bool:
     if os.getenv("STREAMLIT_SERVER_PORT") or os.getenv("HOME") == "/home/adminuser" or "/mount/src" in str(Path.cwd()):
@@ -243,8 +243,56 @@ class LocalGenerator:
 
         return f"This document covers the following core content:\n\n{full_context[:300]}..."
 
+    def generate_metadata_answer(self, query: str, doc_metadata: Optional[Any] = None, fallback_chunks: List[Dict[str, Any]] = None) -> str:
+        q_lower = query.lower()
+        title = getattr(doc_metadata, "title", "") if doc_metadata else ""
+        doc_name = getattr(doc_metadata, "document_name", "") if doc_metadata else ""
+        total_pages = getattr(doc_metadata, "total_pages", None) if doc_metadata else None
+        first_page = getattr(doc_metadata, "first_page_text", "") if doc_metadata else ""
+
+        if not first_page and fallback_chunks:
+            first_page = fallback_chunks[0].get("text", "")
+
+        # 1. Title requests
+        if any(k in q_lower for k in ["title", "called", "subject", "course"]):
+            if title and len(title) > 3:
+                return f"The title of this document is '{title}'."
+            if first_page:
+                lines = [l.strip() for l in first_page.split("\n") if len(l.strip()) > 5]
+                if lines:
+                    return f"The title of this document is '{lines[0]}'."
+            if doc_name:
+                clean_name = os.path.splitext(doc_name)[0].replace("_", " ")
+                return f"The title of this document is '{clean_name}'."
+
+        # 2. Page count requests
+        if any(k in q_lower for k in ["page", "pages", "length"]):
+            if total_pages:
+                return f"This document contains {total_pages} page(s)."
+
+        # 3. Filename requests
+        if any(k in q_lower for k in ["filename", "file name"]):
+            if doc_name:
+                return f"The filename of this document is '{doc_name}'."
+
+        # 4. General metadata response fallback
+        if title or doc_name:
+            t_str = f"'{title}'" if title else f"'{doc_name}'"
+            p_str = f" ({total_pages} pages)" if total_pages else ""
+            return f"This document is titled {t_str}{p_str}."
+
+        return "The document does not specify this metadata."
+
     def _extract_targeted_attribute(self, query: str, context_text: str) -> Optional[str]:
         q_lower = query.lower()
+
+        # Title Extraction Fallback
+        if any(k in q_lower for k in ["title of", "what is the title", "document title", "course title"]):
+            match = re.search(r"(?:Title|Course|Subject)\s*[:\-]\s*(.+?)(?=\s*[\n;]|$)", context_text, re.I)
+            if match:
+                val = match.group(1).strip()
+                if val and len(val) > 3:
+                    return val
 
         # Candidate Name / CV Owner Extraction
         if any(k in q_lower for k in ["whose", "whos", "candidate", "who is this", "owner", "who is she", "who is he", "her name", "his name", "full name", "applicant"]):
@@ -299,7 +347,7 @@ class LocalGenerator:
             for c in context_chunks
         ])
 
-        # Pinpoint targeted attribute extraction (e.g. father's name, mother's name, address, email)
+        # Pinpoint targeted attribute extraction (e.g. title, father's name, mother's name, address, email)
         attr_match = self._extract_targeted_attribute(query, context_text)
         if attr_match:
             return attr_match
@@ -307,9 +355,9 @@ class LocalGenerator:
         system_instruction = (
             "You are an ultra-precise, grounded RAG assistant.\n"
             "CRITICAL INSTRUCTIONS:\n"
-            "1. Answer ONLY what the user explicitly asks. Provide ONLY the exact value requested (e.g. if asked for a name, return ONLY the name, like 'Anonda Dey').\n"
-            "2. Do NOT output unasked fields or extra sentences (e.g. if asked for father's name, do NOT include mother's name, address, or declarations).\n"
-            "3. Be direct, precise, and concise (1-5 words max for specific fact lookups).\n"
+            "1. Answer ONLY what the user explicitly asks based on the provided context.\n"
+            "2. Be direct, precise, and concise (1-5 words max for specific fact lookups).\n"
+            "3. Do NOT output unasked fields or extra sentences.\n"
             "4. If the exact answer is not explicitly stated in the context, reply EXACTLY: 'The document does not specify this information.'"
         )
 
