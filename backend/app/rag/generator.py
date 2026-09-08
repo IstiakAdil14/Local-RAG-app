@@ -111,10 +111,11 @@ class LocalGenerator:
                 continue
 
         # 3. Pinpoint Keyword Match Fallback with Articulate Sentence Synthesis
-        stop_words = {"what", "whats", "who", "where", "when", "how", "why", "tell", "give", "about", "this", "that", "with", "from", "the", "pdf", "doc", "document", "is", "are", "was", "were", "can", "she", "he", "they", "it", "name", "project", "explain", "ive", "please", "show", "me", "summarize", "overview"}
+        stop_words = {"what", "whats", "who", "where", "when", "how", "why", "tell", "give", "this", "that", "with", "from", "the", "pdf", "doc", "document", "is", "are", "was", "were", "can", "she", "he", "they", "it", "name", "project", "explain", "ive", "please", "show", "me", "summarize", "overview"}
         query_words = set([w.lower() for w in re.findall(r"\w+", user_query) if len(w) > 2 and w.lower() not in stop_words])
 
-        if not query_words or any(w in user_query.lower() for w in ["explain", "overview", "summary", "summarize", "about"]):
+        is_summary_query = any(w in user_query.lower() for w in ["overview", "summary", "summarize"]) or bool(re.search(r'\babout\s+(this|the)\s+(document|pdf|file|doc)\b', user_query.lower()))
+        if not query_words or is_summary_query:
             fake_chunks = [{"text": context_text}]
             return self.summarize_document(fake_chunks)
 
@@ -318,6 +319,18 @@ class LocalGenerator:
                 val = match.group(1).strip()
                 if val and len(val) > 3:
                     return val
+
+        # Experience / Nursing Experience Extraction
+        if any(k in q_lower for k in ["experience", "experiences", "worked", "duty", "ward", "position"]):
+            exp_match = re.search(r"(?:EXPERIENCE|WORK\s*EXPERIENCE|PROFESSIONAL\s*EXPERIENCE|NURSING\s*EXPERIENCE)\s*[:\-]?\s*([\s\S]+?)(?=\s*(?:EDUCATION|QUALIFICATION|ACADEMIC|REFERENCE|DECLARATION|SKILLS|PROJECTS|TRAINING|HOBBIES|\b[A-Z\s]{4,}\:|$))", context_text, re.I)
+            if exp_match:
+                exp_text = exp_match.group(1).strip()
+                exp_items = [re.sub(r'^[^\w]+', '', item).strip() for item in re.split(r'[\*\•\n\|]+', exp_text) if len(item.strip()) > 2]
+                if exp_items:
+                    formatted_exp = ", ".join(exp_items[:10])
+                    return f"The document lists the following experience: {formatted_exp}."
+                if exp_text:
+                    return f"The document lists the following experience: {exp_text}."
 
         # Candidate Name / CV Owner Extraction
         if any(k in q_lower for k in ["whose", "whos", "candidate", "who is this", "owner", "who is she", "who is he", "her name", "his name", "full name", "applicant"]):

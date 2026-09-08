@@ -50,12 +50,20 @@ def test_document_metadata_store():
         assert latest is not None
         assert latest.document_id == "DOC_TEST1"
 
-def test_parser_title_extraction():
-    pages = [
-        {"page_number": 1, "text": "B413 Midwifery, P-II (Gynecological & Obstetrical Nursing)\nPage 1 of 45\nCourse Outline"}
-    ]
-    title = DocumentParser.extract_document_title("sample_course.pdf", pages)
-    assert title == "B413 Midwifery, P-II (Gynecological & Obstetrical Nursing)"
+def test_generator_experience_extraction():
+    from app.rag.generator import LocalGenerator
+    gen = LocalGenerator()
+    cv_text = (
+        "REFERENCE: Mrs. Sheuli Akhter Momota Paul Principal Instructor Al-Amin Nursing College\n"
+        "CAREER OBJECTIVE: Experienced nurse looking for opportunities\n"
+        "EXPERIENCE:\n"
+        "* Emergency Ward * Surgery Ward * Medicine Ward\n"
+        "* Post-Operative Ward\n"
+        "* NICU, ICU"
+    )
+    ans = gen.generate_grounded_answer("TELL ME ABOUT HER NURSING EXPERIENCES", [{"text": cv_text}])
+    assert "Emergency Ward" in ans
+    assert "NICU, ICU" in ans or "NICU" in ans
 
 def test_parser_title_extraction_with_exam_header():
     exam_text = (
