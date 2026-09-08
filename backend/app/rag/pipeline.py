@@ -157,15 +157,15 @@ class AdvancedRAGPipeline:
     
     def query(
         self,
-        user_query:str,
-        retrieval_candidates:int=3,
-        top_n_rerank: int=3
+        user_query: str,
+        retrieval_candidates: int = 8,
+        top_n_rerank: int = 4
     ) -> QueryResponse:
         total_start = time.time()
 
         is_global = self._is_global_query(user_query)
-        effective_candidates = max(retrieval_candidates, 12) if is_global else min(retrieval_candidates, 8)
-        effective_top_n = max(top_n_rerank, 5) if is_global else min(top_n_rerank, 3)
+        effective_candidates = max(retrieval_candidates, 12) if is_global else max(retrieval_candidates, 8)
+        effective_top_n = max(top_n_rerank, 5) if is_global else max(top_n_rerank, 4)
 
         candidates = self.hybrid_engine.search(
             query=user_query,

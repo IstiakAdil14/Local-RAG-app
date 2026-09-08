@@ -7,7 +7,7 @@ class BaseChunker:
         raise NotImplementedError
 
 class FixedSizeChunker(BaseChunker):
-    def __init__(self, chunk_size: int = 250, chunk_overlap: int = 32):
+    def __init__(self, chunk_size: int = 200, chunk_overlap: int = 30):
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
 
@@ -44,9 +44,18 @@ class FixedSizeChunker(BaseChunker):
         return chunks
 
 class SemanticStructureChunker(BaseChunker):
-    def __init__(self, max_chunk_size: int = 250, min_chunk_size: int = 30):
+    def __init__(self, max_chunk_size: int = 200, min_chunk_size: int = 20):
         self.max_chunk_size = max_chunk_size
         self.min_chunk_size = min_chunk_size
+
+    def is_generic_header(self, line: str) -> bool:
+        line_str = line.strip()
+        if not line_str or len(line_str) > 70:
+            return False
+        # Match markdown headers (#), numbered sections (1., 1.1), ALL CAPS titles, or Key-Value headers (Heading:)
+        if re.match(r'^(#+|\d+(\.\d+)*\s+|\b[A-Z0-9\s_\-\.]{3,}\b$|^[A-Z][A-Za-z0-9\s]{2,30}:)', line_str):
+            return True
+        return False
 
     def chunk(self, pages_data: List[Dict[str, Any]], doc_id: str, doc_name: str) -> List[DocumentChunk]:
         chunks = []
@@ -54,42 +63,37 @@ class SemanticStructureChunker(BaseChunker):
 
         for page in pages_data:
             page_num = page["page_number"]
-            current_section = page.get("section", "General")
-            
-            # Structure-aware splitting: split by double newlines or key-value section headers
             raw_lines = page["text"].split("\n")
-            segments = []
-            curr_seg = []
+            
+            current_section = page.get("section", "General Section")
+            current_words = []
 
             for line in raw_lines:
                 clean_line = line.strip()
                 if not clean_line:
-                    if curr_seg:
-                        segments.append("\n".join(curr_seg))
-                        curr_seg = []
                     continue
 
-                # Header or field boundary detection (CV / Document key-value pairs)
-                if re.match(r'^(#+|\d+\.|\b[A-Z\s]{3,}\b|Name\s*:|Mother\'s\s*Name\s*:|Father\'s\s*Name\s*:|CAREER\s*OBJECTIVE|EDUCATION|PERSONAL\s*INFORMATION)', clean_line, re.IGNORECASE):
-                    if curr_seg:
-                        segments.append("\n".join(curr_seg))
-                        curr_seg = []
+                # Generic header boundary detection
+                if self.is_generic_header(clean_line):
+                    if current_words:
+                        chunk_text = " ".join(current_words)
+                        chunk_id = f"{doc_id}_{page_num:03d}_{chunk_counter:02d}"
+                        metadata = ChunkMetadata(
+                            document_id=doc_id,
+                            document_name=doc_name,
+                            page_number=page_num,
+                            section=current_section,
+                            chunk_id=chunk_id
+                        )
+                        chunks.append(DocumentChunk(text=chunk_text, metadata=metadata))
+                        chunk_counter += 1
+                        current_words = []
+
                     current_section = clean_line[:50]
 
-                curr_seg.append(clean_line)
-
-            if curr_seg:
-                segments.append("\n".join(curr_seg))
-
-            # Assemble segments into optimal-sized chunks
-            current_chunk_words = []
-            for seg in segments:
-                words = seg.split()
-                if not words:
-                    continue
-
-                if len(current_chunk_words) + len(words) > self.max_chunk_size and current_chunk_words:
-                    chunk_text = " ".join(current_chunk_words)
+                words = clean_line.split()
+                if len(current_words) + len(words) > self.max_chunk_size and current_words:
+                    chunk_text = " ".join(current_words)
                     chunk_id = f"{doc_id}_{page_num:03d}_{chunk_counter:02d}"
                     metadata = ChunkMetadata(
                         document_id=doc_id,
@@ -100,12 +104,12 @@ class SemanticStructureChunker(BaseChunker):
                     )
                     chunks.append(DocumentChunk(text=chunk_text, metadata=metadata))
                     chunk_counter += 1
-                    current_chunk_words = []
+                    current_words = []
 
-                current_chunk_words.extend(words)
+                current_words.extend(words)
 
-            if current_chunk_words:
-                chunk_text = " ".join(current_chunk_words)
+            if current_words:
+                chunk_text = " ".join(current_words)
                 chunk_id = f"{doc_id}_{page_num:03d}_{chunk_counter:02d}"
                 metadata = ChunkMetadata(
                     document_id=doc_id,

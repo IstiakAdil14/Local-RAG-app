@@ -49,17 +49,27 @@ class LocalGenerator:
             self.use_api = True
 
     def _api_generate(self, prompt_text: str, context_chunks: List[Dict[str, Any]], user_query: str = "", max_tokens: int = 250) -> str:
-        # 1. High-speed Pollinations Open-Access API (3s timeout)
+        # 1. Try Pollinations Open-Access LLM Engine (Universal, Free, Instant)
         try:
             url = "https://text.pollinations.ai/"
             payload = {
                 "messages": [
-                    {"role": "system", "content": "You are a strictly grounded, accurate, and concise RAG assistant. Answer the user query using ONLY explicit facts found directly in the Context provided."},
+                    {
+                        "role": "system", 
+                        "content": (
+                            "You are a professional, accurate, and direct RAG assistant.\n"
+                            "INSTRUCTIONS:\n"
+                            "1. Synthesize a clean, natural-language answer to the user's question based strictly on the provided Context.\n"
+                            "2. Do NOT dump raw text blocks or unformatted context snippets.\n"
+                            "3. If the context does not explicitly list specific details (such as company names or locations), summarize what the document does specify regarding the user's topic and state what is missing.\n"
+                            "4. Be direct, concise, and professional."
+                        )
+                    },
                     {"role": "user", "content": prompt_text}
                 ],
                 "model": "openai"
             }
-            res = requests.post(url, json=payload, timeout=3.5)
+            res = requests.post(url, json=payload, timeout=6)
             if res.status_code == 200 and res.text.strip():
                 ans = res.text.strip()
                 if len(ans) > 5 and not ans.startswith("{"):
@@ -67,7 +77,7 @@ class LocalGenerator:
         except Exception:
             pass
 
-        # 2. Fast Hugging Face Chat Router Endpoint (3s timeout)
+        # 2. Try Hugging Face Open-Access Router Endpoint
         headers = {}
         hf_token = os.getenv("HF_TOKEN")
         if hf_token:
@@ -87,7 +97,7 @@ class LocalGenerator:
                     "messages": [{"role": "user", "content": prompt_text}],
                     "max_tokens": max_tokens
                 }
-                res = requests.post(url, headers=headers, json=payload, timeout=3.0)
+                res = requests.post(url, headers=headers, json=payload, timeout=4)
                 if res.status_code == 200:
                     data = res.json()
                     if "choices" in data and len(data["choices"]) > 0:
@@ -97,46 +107,32 @@ class LocalGenerator:
             except Exception:
                 continue
 
-        # 3. Precise Question-Aware Field Extraction (Instant, < 1ms)
-        q_lower = user_query.lower()
-        ignore_words = {"what", "whats", "who", "where", "when", "how", "tell", "give", "about", "this", "that", "with", "from", "the", "pdf", "doc", "document", "her", "his", "their", "your", "name", "is", "are", "was", "were"}
-        q_words = [w for w in re.findall(r"\w+", q_lower) if len(w) > 2 and w not in ignore_words]
-        
-        synonyms = {
-            "mother": ["mother", "mother's", "mother's name", "mother name", "suma dey"],
-            "father": ["father", "father's", "father's name", "anonda dey"],
-            "profession": ["profession", "career", "occupation", "job", "work", "midwife", "objective", "registered midwife"],
-            "ssc": ["ssc", "secondary school", "board", "result", "gpa", "passing"],
-            "hsc": ["hsc", "higher secondary", "group", "result", "gpa", "academy"],
-            "qualification": ["qualification", "qualifications", "education", "academic", "hsc", "ssc", "gpa", "school", "college", "degree", "certificate"],
-            "educational": ["educational", "education", "academic", "hsc", "ssc", "gpa", "school", "college", "degree", "certificate"]
-        }
+        # 3. Universal Extractive Answer Synthesis (Dynamic for ANY Document & Query)
+        stop_words = {"what", "whats", "who", "where", "when", "how", "why", "tell", "give", "about", "this", "that", "with", "from", "the", "pdf", "doc", "document", "is", "are", "was", "were", "can", "she", "he", "they", "it"}
+        query_words = set([w.lower() for w in re.findall(r"\w+", user_query) if len(w) > 2 and w.lower() not in stop_words])
 
-        expanded_keywords = set(q_words)
-        for qw in q_words:
-            if qw in synonyms:
-                expanded_keywords.update(synonyms[qw])
-
-        matched_lines = []
+        scored_lines = []
         for c in context_chunks:
             text = c.get("text", "")
-            lines = [line.strip() for line in re.split(r"[\n\.;]+", text) if len(line.strip()) > 6]
+            lines = [line.strip() for line in re.split(r"[\n\.;]+", text) if len(line.strip()) > 8]
             for line in lines:
                 line_lower = line.lower()
-                if any(kw in line_lower for kw in expanded_keywords):
-                    matched_lines.append(line)
+                # Score line based on query keyword overlap
+                match_count = sum(1 for qw in query_words if qw in line_lower)
+                if match_count > 0:
+                    scored_lines.append((match_count, line))
 
-        if matched_lines:
-            # Deduplicate extracted lines
-            unique_lines = list(dict.fromkeys(matched_lines))[:3]
-            return "\n\n".join([f"• {line}" for line in unique_lines])
+        if scored_lines:
+            scored_lines.sort(key=lambda x: x[0], reverse=True)
+            best_lines = list(dict.fromkeys([line for _, line in scored_lines]))[:3]
+            return "Based on the provided document:\n\n• " + "\n• ".join(best_lines)
 
-        # Fallback snippet summary
-        general_chunks = [c.get("text", "").strip()[:200] for c in context_chunks if c.get("text")]
-        if general_chunks:
-            return "\n\n".join([f"• {chunk}..." for chunk in general_chunks[:2]])
+        # Fallback snippet summary if no keyword overlap
+        general_snippets = [c.get("text", "").strip()[:200] for c in context_chunks if c.get("text")]
+        if general_snippets:
+            return "Relevant excerpts from the document:\n\n• " + "\n• ".join(general_snippets[:2])
 
-        return "I could not find this information in the provided documents."
+        return "The provided document does not contain sufficient details regarding your query."
 
     def generate_grounded_answer(
         self,
@@ -145,21 +141,20 @@ class LocalGenerator:
         max_tokens: int = 250
     ) -> str:
         if not context_chunks:
-            return "I could not find this information in the provided documents."
+            return "The provided document does not contain information regarding your query."
 
         formatted_context = "\n\n".join([
-            f"--- Document: {c.get('metadata', {}).get('document_name', 'Document')} | Section: {c.get('metadata', {}).get('section', 'General')} (Page {c.get('metadata', {}).get('page_number', 1)}) ---\n{c.get('text', '')}"
+            f"--- Section: {c.get('metadata', {}).get('section', 'General')} (Page {c.get('metadata', {}).get('page_number', 1)}) ---\n{c.get('text', '')}"
             for c in context_chunks
         ])
 
         system_instruction = (
-            "You are a strictly grounded, accurate, and concise RAG assistant.\n"
+            "You are a professional, accurate, and concise RAG assistant.\n"
             "CRITICAL INSTRUCTIONS:\n"
-            "1. Answer the user query using ONLY explicit facts found directly in the Context below.\n"
-            "2. Be direct, precise, and concise. Provide ONLY the specific information requested.\n"
-            "3. Do NOT include conversational filler, greetings, introductory boilerplate, or unasked background information.\n"
-            "4. Do NOT make assumptions, speculate, or draw from external knowledge outside the text.\n"
-            "5. If the Context does not explicitly contain the answer, reply EXACTLY: 'I could not find this information in the provided documents.'"
+            "1. Synthesize a clean, natural-language answer to the user's question using ONLY the facts explicitly provided in the Context below.\n"
+            "2. NEVER dump raw unformatted chunk blocks.\n"
+            "3. If the user asks for specific information (such as job placement or company names) and the Context only lists general qualifications or background, explicitly state what is in the document and clarify what is missing.\n"
+            "4. Be direct, precise, and professional."
         )
 
         messages = [
