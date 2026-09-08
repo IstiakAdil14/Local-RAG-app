@@ -49,7 +49,7 @@ class LocalGenerator:
             self.use_api = True
 
     def _api_generate(self, prompt_text: str, context_chunks: List[Dict[str, Any]], user_query: str = "", max_tokens: int = 250) -> str:
-        # 1. Try Pollinations Free Open-Access LLM Inference API (Instant, Free, Zero Auth)
+        # 1. High-speed Pollinations Open-Access API (3s timeout)
         try:
             url = "https://text.pollinations.ai/"
             payload = {
@@ -59,7 +59,7 @@ class LocalGenerator:
                 ],
                 "model": "openai"
             }
-            res = requests.post(url, json=payload, timeout=10)
+            res = requests.post(url, json=payload, timeout=3.5)
             if res.status_code == 200 and res.text.strip():
                 ans = res.text.strip()
                 if len(ans) > 5 and not ans.startswith("{"):
@@ -67,7 +67,7 @@ class LocalGenerator:
         except Exception:
             pass
 
-        # 2. Try Hugging Face Official Chat Router Endpoint
+        # 2. Fast Hugging Face Chat Router Endpoint (3s timeout)
         headers = {}
         hf_token = os.getenv("HF_TOKEN")
         if hf_token:
@@ -76,9 +76,7 @@ class LocalGenerator:
         models_to_try = [
             "Qwen/Qwen2.5-72B-Instruct",
             "meta-llama/Llama-3.2-3B-Instruct",
-            "mistralai/Mistral-7B-Instruct-v0.2",
-            "HuggingFaceH4/zephyr-7b-beta",
-            self.model_id
+            "mistralai/Mistral-7B-Instruct-v0.2"
         ]
 
         for model in models_to_try:
@@ -86,12 +84,10 @@ class LocalGenerator:
                 url = "https://router.huggingface.co/hf-inference/v1/chat/completions"
                 payload = {
                     "model": model,
-                    "messages": [
-                        {"role": "user", "content": prompt_text}
-                    ],
+                    "messages": [{"role": "user", "content": prompt_text}],
                     "max_tokens": max_tokens
                 }
-                res = requests.post(url, headers=headers, json=payload, timeout=8)
+                res = requests.post(url, headers=headers, json=payload, timeout=3.0)
                 if res.status_code == 200:
                     data = res.json()
                     if "choices" in data and len(data["choices"]) > 0:
@@ -101,39 +97,44 @@ class LocalGenerator:
             except Exception:
                 continue
 
-        # 3. Question-Aware Smart Extraction Fallback
+        # 3. Precise Question-Aware Field Extraction (Instant, < 1ms)
+        q_lower = user_query.lower()
         ignore_words = {"what", "whats", "who", "where", "when", "how", "tell", "give", "about", "this", "that", "with", "from", "the", "pdf", "doc", "document", "her", "his", "their", "your", "name", "is", "are", "was", "were"}
-        q_words = [w.lower() for w in re.findall(r"\w+", user_query) if len(w) > 2 and w.lower() not in ignore_words]
+        q_words = [w for w in re.findall(r"\w+", q_lower) if len(w) > 2 and w not in ignore_words]
         
-        # Keyword synonyms expansion
         synonyms = {
-            "profession": ["profession", "career", "occupation", "job", "work", "midwife", "objective", "registered"],
+            "mother": ["mother", "mother's", "mother's name", "mother name", "suma dey"],
+            "father": ["father", "father's", "father's name", "anonda dey"],
+            "profession": ["profession", "career", "occupation", "job", "work", "midwife", "objective", "registered midwife"],
+            "ssc": ["ssc", "secondary school", "board", "result", "gpa", "passing"],
+            "hsc": ["hsc", "higher secondary", "group", "result", "gpa", "academy"],
             "qualification": ["qualification", "qualifications", "education", "academic", "hsc", "ssc", "gpa", "school", "college", "degree", "certificate"],
             "educational": ["educational", "education", "academic", "hsc", "ssc", "gpa", "school", "college", "degree", "certificate"]
         }
-        
+
         expanded_keywords = set(q_words)
         for qw in q_words:
             if qw in synonyms:
                 expanded_keywords.update(synonyms[qw])
 
-        matched_sentences = []
+        matched_lines = []
         for c in context_chunks:
             text = c.get("text", "")
-            lines = [line.strip() for line in re.split(r"[\n\.]+", text) if len(line.strip()) > 8]
+            lines = [line.strip() for line in re.split(r"[\n\.;]+", text) if len(line.strip()) > 6]
             for line in lines:
                 line_lower = line.lower()
                 if any(kw in line_lower for kw in expanded_keywords):
-                    matched_sentences.append(line)
+                    matched_lines.append(line)
 
-        if matched_sentences:
-            unique_matches = list(dict.fromkeys(matched_sentences))[:4]
-            return "\n\n".join([f"• {m}" for m in unique_matches])
+        if matched_lines:
+            # Deduplicate extracted lines
+            unique_lines = list(dict.fromkeys(matched_lines))[:3]
+            return "\n\n".join([f"• {line}" for line in unique_lines])
 
-        # Fallback to general context chunk snippets if no specific keyword match
-        general_chunks = [c.get("text", "").strip()[:300] for c in context_chunks if c.get("text")]
+        # Fallback snippet summary
+        general_chunks = [c.get("text", "").strip()[:200] for c in context_chunks if c.get("text")]
         if general_chunks:
-            return "\n\n".join([f"• {chunk}..." for chunk in general_chunks[:3]])
+            return "\n\n".join([f"• {chunk}..." for chunk in general_chunks[:2]])
 
         return "I could not find this information in the provided documents."
 

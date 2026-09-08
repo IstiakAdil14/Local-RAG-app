@@ -7,7 +7,7 @@ class BaseChunker:
         raise NotImplementedError
 
 class FixedSizeChunker(BaseChunker):
-    def __init__(self, chunk_size: int = 512, chunk_overlap: int = 64):
+    def __init__(self, chunk_size: int = 250, chunk_overlap: int = 32):
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
 
@@ -44,12 +44,9 @@ class FixedSizeChunker(BaseChunker):
         return chunks
 
 class SemanticStructureChunker(BaseChunker):
-    def __init__(self, max_chunk_size: int = 1024, min_chunk_size: int = 100):
+    def __init__(self, max_chunk_size: int = 250, min_chunk_size: int = 30):
         self.max_chunk_size = max_chunk_size
         self.min_chunk_size = min_chunk_size
-
-    def _split_into_sentences(self, text: str) -> List[str]:
-        return re.split(r'(?<=[.?!])\s+', text)
 
     def chunk(self, pages_data: List[Dict[str, Any]], doc_id: str, doc_name: str) -> List[DocumentChunk]:
         chunks = []
@@ -58,34 +55,54 @@ class SemanticStructureChunker(BaseChunker):
         for page in pages_data:
             page_num = page["page_number"]
             current_section = page.get("section", "General")
-            paragraphs = [p.strip() for p in page["text"].split("\n\n") if p.strip()]
             
+            # Structure-aware splitting: split by double newlines or key-value section headers
+            raw_lines = page["text"].split("\n")
+            segments = []
+            curr_seg = []
+
+            for line in raw_lines:
+                clean_line = line.strip()
+                if not clean_line:
+                    if curr_seg:
+                        segments.append("\n".join(curr_seg))
+                        curr_seg = []
+                    continue
+
+                # Header or field boundary detection (CV / Document key-value pairs)
+                if re.match(r'^(#+|\d+\.|\b[A-Z\s]{3,}\b|Name\s*:|Mother\'s\s*Name\s*:|Father\'s\s*Name\s*:|CAREER\s*OBJECTIVE|EDUCATION|PERSONAL\s*INFORMATION)', clean_line, re.IGNORECASE):
+                    if curr_seg:
+                        segments.append("\n".join(curr_seg))
+                        curr_seg = []
+                    current_section = clean_line[:50]
+
+                curr_seg.append(clean_line)
+
+            if curr_seg:
+                segments.append("\n".join(curr_seg))
+
+            # Assemble segments into optimal-sized chunks
             current_chunk_words = []
-            for para in paragraphs:
-                if re.match(r'^(#+|\d+\.|\b[A-Z\s]{3,}\b)', para):
-                    first_line = para.split("\n")[0]
-                    current_section = first_line[:50]
+            for seg in segments:
+                words = seg.split()
+                if not words:
+                    continue
 
-                sentences = self._split_into_sentences(para)
-                for sentence in sentences:
-                    sentence_words = sentence.split()
-                    
-                    if len(current_chunk_words) + len(sentence_words) > self.max_chunk_size:
-                        if current_chunk_words:
-                            chunk_text = " ".join(current_chunk_words)
-                            chunk_id = f"{doc_id}_{page_num:03d}_{chunk_counter:02d}"
-                            metadata = ChunkMetadata(
-                                document_id=doc_id,
-                                document_name=doc_name,
-                                page_number=page_num,
-                                section=current_section,
-                                chunk_id=chunk_id
-                            )
-                            chunks.append(DocumentChunk(text=chunk_text, metadata=metadata))
-                            chunk_counter += 1
-                            current_chunk_words = []
+                if len(current_chunk_words) + len(words) > self.max_chunk_size and current_chunk_words:
+                    chunk_text = " ".join(current_chunk_words)
+                    chunk_id = f"{doc_id}_{page_num:03d}_{chunk_counter:02d}"
+                    metadata = ChunkMetadata(
+                        document_id=doc_id,
+                        document_name=doc_name,
+                        page_number=page_num,
+                        section=current_section,
+                        chunk_id=chunk_id
+                    )
+                    chunks.append(DocumentChunk(text=chunk_text, metadata=metadata))
+                    chunk_counter += 1
+                    current_chunk_words = []
 
-                    current_chunk_words.extend(sentence_words)
+                current_chunk_words.extend(words)
 
             if current_chunk_words:
                 chunk_text = " ".join(current_chunk_words)
