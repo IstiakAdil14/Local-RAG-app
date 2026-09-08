@@ -33,6 +33,8 @@ class AnswerVerifier:
             if first_p and first_p not in full_context:
                 full_context += f"\n\n{first_p}"
 
+        ctx_lower = full_context.lower()
+
         # 1. FALSE-ABSTENTION RECOVERY
         if is_abstention and full_context:
             from app.rag.generator import LocalGenerator
@@ -60,13 +62,21 @@ class AnswerVerifier:
                     clean_match = re.sub(r'^(Cell\s*\d+\s*:|\*|\-)\s*', '', matched_lines[0][1], flags=re.I).strip()
                     return f"According to the document: {clean_match}."
 
-        # 2. FAITHFULNESS / HALLUCINATION CHECK FOR NUMERICAL/FACT QA
-        if not is_abstention and any(k in q_lower for k in ["how many", "marks", "time", "date", "year", "page", "number"]):
-            numbers_in_ans = re.findall(r'\b\d+\b', ans_clean)
-            if numbers_in_ans and full_context:
-                # Ensure at least one claimed number exists in the retrieved context
-                if not any(num in full_context for num in numbers_in_ans):
-                    # Unsupported hallucinated number detected!
+        # 2. FAITHFULNESS & HALLUCINATION GUARDRAIL
+        if not is_abstention and full_context:
+            # Check numbers
+            if any(k in q_lower for k in ["how many", "marks", "time", "date", "year", "page", "number"]):
+                numbers_in_ans = re.findall(r'\b\d+\b', ans_clean)
+                if numbers_in_ans and not any(num in ctx_lower for num in numbers_in_ans):
+                    return "The document does not specify this information."
+
+            # Check general key content words in answer to verify grounding in context
+            ans_stop_words = {"the", "a", "an", "is", "are", "was", "were", "this", "that", "it", "according", "to", "document", "following", "lists"}
+            ans_words = [w.lower() for w in re.findall(r"\w+", ans_clean) if len(w) > 2 and w.lower() not in ans_stop_words]
+            if ans_words:
+                matched_in_ctx = sum(1 for w in ans_words if w in ctx_lower)
+                # If less than 20% of meaningful answer words exist in context, it's an ungrounded LLM hallucination
+                if (float(matched_in_ctx) / float(len(ans_words))) < 0.2:
                     return "The document does not specify this information."
 
         return ans_clean
