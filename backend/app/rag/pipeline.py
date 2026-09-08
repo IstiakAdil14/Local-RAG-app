@@ -79,24 +79,66 @@ class AdvancedRAGPipeline:
         qdrant_url: str = None,
         qdrant_api_key: str = None
     ):
-        print(">>> Initializing Advanced RAG Components...")
-        self.embedder = LocalEmbeddingEngine()
-        self.vector_store = LocalVectorStore(
-            storage_path=storage_path,
-            collection_name=collection_name,
-            url=qdrant_url,
-            api_key=qdrant_api_key
-        )
-        self.bm25_store = LocalBM25Store(index_path=bm25_path)
+        self.storage_path = storage_path
+        self.collection_name = collection_name
+        self.bm25_path = bm25_path
+        self.reranker_model = reranker_model
+        self.generator_model = generator_model
+        self.qdrant_url = qdrant_url
+        self.qdrant_api_key = qdrant_api_key
 
-        self.hybrid_engine = HybridSearchEngine(
-            vector_store=self.vector_store, 
-            bm25_store=self.bm25_store, 
-            embedder=self.embedder,
-            rrf_k=60
+        self._embedder = None
+        self._vector_store = None
+        self._bm25_store = None
+        self._hybrid_engine = None
+        self._reranker = None
+        self._generator = None
+
+    @property
+    def embedder(self):
+        if self._embedder is None:
+            self._embedder = LocalEmbeddingEngine()
+        return self._embedder
+
+    @property
+    def vector_store(self):
+        if self._vector_store is None:
+            self._vector_store = LocalVectorStore(
+                storage_path=self.storage_path,
+                collection_name=self.collection_name,
+                url=self.qdrant_url,
+                api_key=self.qdrant_api_key
             )
-        self.reranker = LocalCrossEncoderReranker(model_name=reranker_model)
-        self.generator = LocalGenerator(model_id=generator_model)
+        return self._vector_store
+
+    @property
+    def bm25_store(self):
+        if self._bm25_store is None:
+            self._bm25_store = LocalBM25Store(index_path=self.bm25_path)
+        return self._bm25_store
+
+    @property
+    def hybrid_engine(self):
+        if self._hybrid_engine is None:
+            self._hybrid_engine = HybridSearchEngine(
+                vector_store=self.vector_store, 
+                bm25_store=self.bm25_store, 
+                embedder=self.embedder,
+                rrf_k=60
+            )
+        return self._hybrid_engine
+
+    @property
+    def reranker(self):
+        if self._reranker is None:
+            self._reranker = LocalCrossEncoderReranker(model_name=self.reranker_model)
+        return self._reranker
+
+    @property
+    def generator(self):
+        if self._generator is None:
+            self._generator = LocalGenerator(model_id=self.generator_model)
+        return self._generator
 
     def _is_global_query(self, query: str) -> bool:
         q_lower = query.lower()
