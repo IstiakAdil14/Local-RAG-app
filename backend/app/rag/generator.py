@@ -178,31 +178,46 @@ class LocalGenerator:
         raw_headers = []
         major_category_headers = []
 
+        def is_sensitive_contact_field(text: str) -> bool:
+            t_lower = text.lower()
+            return any(k in t_lower for k in [
+                "phone", "mobile", "cell", "tel", "+88", "email", "@", "gmail",
+                "nid", "passport", "dob", "birth", "religion", "father", "mother"
+            ])
+
         for c in context_chunks:
             sec_meta = c.get("metadata", {}).get("section", "")
             if sec_meta and sec_meta not in ["General", "General Section"] and len(sec_meta) < 75:
-                raw_headers.append(sec_meta.strip())
+                if not is_sensitive_contact_field(sec_meta):
+                    raw_headers.append(sec_meta.strip())
 
             text = c.get("text", "")
-            for line in text.split("\n"):
-                line_clean = line.strip()
-                if not line_clean or len(line_clean) > 80:
+            # Split text by line breaks AND bullet symbols (•), pipes (|), or semicolons
+            split_parts = re.split(r'[•|\;\n]', text)
+
+            for part in split_parts:
+                line_clean = part.strip()
+                if not line_clean or len(line_clean) > 75 or is_sensitive_contact_field(line_clean):
                     continue
 
                 if any(emoji in line_clean for emoji in ["📌", "🧹", "🔍", "⚙️", "📊"]) or "(Cells" in line_clean:
                     major_category_headers.append(line_clean)
 
                 clean_no_symbols = re.sub(r'^[^\w\s]+', '', line_clean).strip()
+                clean_no_symbols = re.sub(r'[\:\-]$', '', clean_no_symbols).strip()
+
                 is_header = (
                     bool(re.search(r'\(Cells?\s*\d+', line_clean, re.I)) or
                     bool(re.match(r'^(📌|🧹|🔍|⚙️|📊|#+|\d+[\.\:]|Cell\s*\d+[\:\-])', line_clean, re.I)) or
-                    bool(re.match(r'^(Data|Model|Feature|Clean|Missing|Outlier|Prediction|Evaluation|Personal|Education|Experience|Skills|Summary|Introduction|Conclusion)\b', clean_no_symbols, re.I))
+                    bool(re.match(r'^(CURRICULUM|CV|CAREER|ACADEMIC|QUALIFICATION|PERSONAL|EXPERIENCE|COMPUTER|LITERACY|LANGUAGE|SKILLS|PROJECTS|Data|Model|Feature|Clean|Missing|Outlier|Prediction|Evaluation|Summary|Introduction|Conclusion)\b', clean_no_symbols, re.I)) or
+                    (clean_no_symbols.isupper() and len(clean_no_symbols) > 4)
                 )
 
                 if is_header:
                     display_header = re.sub(r'^[^\w\s]+', '', line_clean).strip()
                     display_header = re.sub(r'^Cell\s*\d+[\:\-]?\s*', '', display_header, flags=re.I).strip()
-                    if display_header and len(display_header) > 3:
+                    display_header = re.sub(r'[\:\-]$', '', display_header).strip()
+                    if display_header and len(display_header) > 3 and not is_sensitive_contact_field(display_header):
                         raw_headers.append(display_header)
 
         # Prioritize major category section headers if found
@@ -216,7 +231,7 @@ class LocalGenerator:
         unique_sections = list(dict.fromkeys(raw_headers))[:8]
         if len(unique_sections) >= 2:
             return (
-                f"This document provides a structured guide covering the following main sections:\n\n"
+                f"This document provides a structured overview covering the following key sections:\n\n"
                 + "\n".join([f"• {sec}" for sec in unique_sections])
             )
 
