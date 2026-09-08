@@ -41,7 +41,7 @@ class LocalCrossEncoderReranker:
                 loaded_model = CrossEncoder(model_name, device=device)
                 _RERANKER_MODEL_CACHE[model_name] = loaded_model
                 self.model = loaded_model
-            except Exception as e:
+            except (Exception, BaseException) as e:
                 print(f"⚠️ CrossEncoder loading skipped ({e}). Using candidate RRF score fallback.")
                 self.model = None
 
