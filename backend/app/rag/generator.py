@@ -245,6 +245,25 @@ class LocalGenerator:
 
     def _extract_targeted_attribute(self, query: str, context_text: str) -> Optional[str]:
         q_lower = query.lower()
+
+        # Candidate Name / CV Owner Extraction
+        if any(k in q_lower for k in ["whose", "whos", "candidate", "who is this", "owner", "who is she", "who is he", "her name", "his name", "full name", "applicant"]):
+            decl_match = re.search(r"\bI,\s*([A-Z][A-Za-z\s\.]+?),\s*hereby\s*declare", context_text, re.I)
+            if decl_match:
+                return decl_match.group(1).strip()
+
+            name_match = re.search(r"(?:Full\s*Name|Candidate\s*Name|Name)\s*[:\-]\s*([A-Za-z\s\.]+?)(?=\s*(?:Father|Mother|Present|Permanent|DECLARATION|Date|Religion|NID|Mobile|Phone|Address|[\:\-\n]|$))", context_text, re.I)
+            if name_match:
+                val = name_match.group(1).strip()
+                if val and len(val) > 2 and "VITAE" not in val.upper():
+                    return val
+
+            cv_match = re.search(r"(?:CURRICULUM\s*VITAE|CV)\s*(?:OF)?\s*[:\-]?\s*([A-Z][A-Za-z\s\.]+?)(?=\s*(?:Cell|Mobile|Phone|Email|CAREER|ACADEMIC|PERSONAL|[\:\-\n]|$))", context_text, re.I)
+            if cv_match:
+                val = cv_match.group(1).strip()
+                if val and len(val) > 2 and "VITAE" not in val.upper():
+                    return val
+
         field_regex = None
         if "father" in q_lower:
             field_regex = r"(?:Father[’']?s?\s*Name|Father)\s*[:\-]\s*([A-Za-z\s\.]+?)(?=\s*(?:Mother|Present|Permanent|DECLARATION|Date|Religion|NID|Mobile|Phone|Address|[\:\-\n]|$))"
