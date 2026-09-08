@@ -1,6 +1,7 @@
 import os
 import requests
 import re
+import urllib.parse
 from pathlib import Path
 from typing import List, Dict, Any
 
@@ -49,31 +50,11 @@ class LocalGenerator:
             self.use_api = True
 
     def _api_generate(self, context_text: str, user_query: str = "", max_tokens: int = 250) -> str:
-        # 1. High-speed Pollinations JSON POST API
+        # 1. High-speed Pollinations GET API
         try:
-            url = "https://text.pollinations.ai/"
-            payload = {
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are an ultra-precise, grounded RAG assistant.\n"
-                            "CRITICAL RULES:\n"
-                            "1. Answer ONLY what the user explicitly asks. Provide NO extra, unasked, or irrelevant information.\n"
-                            "2. Be direct, precise, and concise (1-2 sentences max for specific questions).\n"
-                            "3. Base your answer strictly on the Context provided.\n"
-                            "4. Do NOT dump raw text blocks or quote cell numbers.\n"
-                            "5. If the exact answer is not explicitly stated in the context, reply EXACTLY: 'The document does not specify this information.'"
-                        )
-                    },
-                    {
-                        "role": "user",
-                        "content": f"Context:\n{context_text}\n\nQuestion: {user_query}\n\nDirect Answer:"
-                    }
-                ],
-                "model": "openai"
-            }
-            res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=7)
+            prompt = f"Context:\n{context_text[:1500]}\n\nQuestion: {user_query}\n\nProvide a direct 1-2 sentence answer based ONLY on the context:"
+            url = f"https://text.pollinations.ai/{urllib.parse.quote(prompt)}"
+            res = requests.get(url, timeout=7)
             if res.status_code == 200 and res.text.strip():
                 ans = res.text.strip()
                 if len(ans) > 2 and not ans.startswith("{") and "The document does not specify" not in ans:
@@ -113,8 +94,12 @@ class LocalGenerator:
                 continue
 
         # 3. Pinpoint Keyword Match Fallback
-        stop_words = {"what", "whats", "who", "where", "when", "how", "why", "tell", "give", "about", "this", "that", "with", "from", "the", "pdf", "doc", "document", "is", "are", "was", "were", "can", "she", "he", "they", "it", "name", "project", "explain"}
+        stop_words = {"what", "whats", "who", "where", "when", "how", "why", "tell", "give", "about", "this", "that", "with", "from", "the", "pdf", "doc", "document", "is", "are", "was", "were", "can", "she", "he", "they", "it", "name", "project", "explain", "ive", "please", "show", "me", "summarize", "overview"}
         query_words = set([w.lower() for w in re.findall(r"\w+", user_query) if len(w) > 2 and w.lower() not in stop_words])
+
+        if not query_words or any(w in user_query.lower() for w in ["explain", "overview", "summary", "summarize", "about"]):
+            fake_chunks = [{"text": context_text}]
+            return self.summarize_document(fake_chunks)
 
         lines = [line.strip() for line in re.split(r"[\n\.;]+", context_text) if len(line.strip()) > 8]
         matched_lines = []
@@ -136,43 +121,31 @@ class LocalGenerator:
         if not context_chunks:
             return "The provided document is empty or could not be parsed."
 
-        context_text = "\n\n".join([c.get("text", "")[:350] for c in context_chunks[:6]])
+        context_text = "\n\n".join([c.get("text", "")[:400] for c in context_chunks[:6]])
 
-        # 1. Try Pollinations JSON POST API for clean high-level summary
+        # 1. Try Pollinations GET API for clean summary
         try:
-            url = "https://text.pollinations.ai/"
-            payload = {
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": "You are a professional document analyst. Provide a clear, high-level 3-sentence summary explaining what this document is about. Do NOT quote cell numbers or raw code snippets."
-                    },
-                    {
-                        "role": "user",
-                        "content": f"Document Content:\n{context_text}\n\nDocument Overview:"
-                    }
-                ],
-                "model": "openai"
-            }
-            res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=7)
+            prompt = f"Summarize what this document is about in 3 clear sentences. Context:\n{context_text[:1200]}"
+            url = f"https://text.pollinations.ai/{urllib.parse.quote(prompt)}"
+            res = requests.get(url, timeout=7)
             if res.status_code == 200 and res.text.strip():
                 ans = res.text.strip()
-                if len(ans) > 10 and not ans.startswith("{"):
+                if len(ans) > 15 and not ans.startswith("{"):
                     return ans
         except Exception:
             pass
 
-        # 2. Structural Heading Extraction Fallback
+        # 2. Structural Heading Extraction Fallback (Handles Emojis, Bullet Points, Cell X:, Headings)
         section_headers = []
         for c in context_chunks:
             text = c.get("text", "")
             for line in text.split("\n"):
                 line_clean = line.strip()
-                # Extract headers (e.g. Data Loading, Data Cleaning, Model Training, Personal Information)
-                if re.match(r'^(#+|\d+\.|\b[A-Z0-9\s_\-\.]{3,}\b$|^[A-Z][A-Za-z0-9\s]{2,30}:)', line_clean) and len(line_clean) < 60:
-                    section_headers.append(re.sub(r'[^\w\s]', '', line_clean).strip())
+                text_no_emoji = re.sub(r'^[^\w\s]+', '', line_clean).strip()
+                if re.match(r'^(#+|\d+[\.\:]|\b[A-Z0-9\s_\-\.]{3,}\b$|^Cell\s*\d+:|^[A-Z][A-Za-z0-9\s]{2,40}:)', text_no_emoji) and len(text_no_emoji) < 65:
+                    section_headers.append(text_no_emoji)
 
-        unique_sections = list(dict.fromkeys([s for s in section_headers if len(s) > 3]))[:5]
+        unique_sections = list(dict.fromkeys([s for s in section_headers if len(s) > 3]))[:6]
         if unique_sections:
             return (
                 f"This document provides a structured guide covering the following main sections:\n\n"

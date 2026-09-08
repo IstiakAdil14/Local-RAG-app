@@ -143,18 +143,18 @@ class AdvancedRAGPipeline:
     def _is_global_query(self, query: str) -> bool:
         q_lower = query.lower()
         patterns = [
-            r"\b(list|show|explain|give)\b.*\b(every|all)\b",
-            r"\b(every|all)\b.*\b(cell|cells|section|sections|page|pages|doc|document)\b",
+            r"\bexplain\b",
             r"\bsummarize\b",
             r"\bsummary\b",
-            r"\blist all\b",
-            r"\blist every\b",
             r"\boverview\b",
             r"\bwhat\s+is\s+about\b",
             r"\babout\s+this\s+(doc|pdf|document|txt|file)\b",
             r"\bwhat\s+is\s+this\s+(doc|pdf|document|txt|file)\s+about\b",
-            r"\bexplain\s+(this|the|a)?\s*(doc|pdf|document|txt|file)\b",
-            r"\bexplain\b"
+            r"\b(list|show|give)\b.*\b(every|all)\b",
+            r"\b(every|all)\b.*\b(cell|cells|section|sections|page|pages|doc|document)\b",
+            r"\blist all\b",
+            r"\blist every\b",
+            r"\btell\s+me\s+about\b"
         ]
         return any(re.search(p, q_lower) for p in patterns)
     
