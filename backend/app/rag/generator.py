@@ -121,7 +121,8 @@ class LocalGenerator:
         if not context_chunks:
             return "The provided document is empty or could not be parsed."
 
-        context_text = "\n\n".join([c.get("text", "")[:400] for c in context_chunks[:10]])
+        full_context = "\n\n".join([c.get("text", "") for c in context_chunks])
+        context_summary_text = full_context[:2500]
 
         # 1. Try Pollinations JSON POST API for clean 3-sentence summary
         try:
@@ -129,8 +130,12 @@ class LocalGenerator:
             payload = {
                 "messages": [
                     {
+                        "role": "system",
+                        "content": "You are a senior document analyst. Summarize the main purpose, dataset/topic, and key steps outlined in this document in a clear 3-4 sentence paragraph. Do not quote cell numbers or raw chunk IDs."
+                    },
+                    {
                         "role": "user",
-                        "content": f"Provide a clear 3-sentence overview of what this document is about. Do not mention cell numbers. Context:\n{context_text[:1800]}"
+                        "content": f"Document Text:\n{context_summary_text}\n\nSummary:"
                     }
                 ],
                 "model": "openai"
@@ -138,14 +143,21 @@ class LocalGenerator:
             res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=6)
             if res.status_code == 200 and res.text.strip():
                 ans = res.text.strip()
-                if len(ans) > 20 and not ans.startswith("{") and "The document does not specify" not in ans:
+                if len(ans) > 25 and not ans.startswith("{") and "The document does not specify" not in ans:
                     return ans
         except Exception:
             pass
 
-        # 2. Universal Section & Header Extraction Fallback
+        # 2. Universal Section & Header Extraction Fallback across ALL chunks
         section_headers = []
         for c in context_chunks:
+            sec_meta = c.get("metadata", {}).get("section", "")
+            if sec_meta and sec_meta not in ["General", "General Section"] and len(sec_meta) < 75:
+                clean_sec = re.sub(r'^[^\w\s]+', '', sec_meta).strip()
+                clean_sec = re.sub(r'^Cell\s*\d+[\:\-]?\s*', '', clean_sec, flags=re.I).strip()
+                if clean_sec and len(clean_sec) > 3:
+                    section_headers.append(clean_sec)
+
             text = c.get("text", "")
             for line in text.split("\n"):
                 line_clean = line.strip()
@@ -167,15 +179,19 @@ class LocalGenerator:
                         section_headers.append(display_header)
 
         unique_sections = list(dict.fromkeys(section_headers))[:8]
-        if unique_sections:
+        if len(unique_sections) >= 2:
             return (
                 f"This document provides a structured guide covering the following main sections:\n\n"
                 + "\n".join([f"• {sec}" for sec in unique_sections])
             )
 
-        first_text = context_chunks[0].get("text", "").strip()[:300]
-        first_text = re.sub(r'[\r\n]+', ' ', first_text)
-        return f"This document covers the following core topic:\n\n{first_text}..."
+        # 3. Excerpt Paragraph Fallback
+        lines = [l.strip() for l in full_context.split("\n") if len(l.strip()) > 15 and not l.strip().startswith("Cell")]
+        excerpt = " ".join(lines[:4])[:350]
+        if excerpt:
+            return f"This document outlines the following topic:\n\n{excerpt}..."
+
+        return f"This document covers the following core content:\n\n{full_context[:300]}..."
 
     def generate_grounded_answer(
         self,

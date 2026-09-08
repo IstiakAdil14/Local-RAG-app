@@ -168,14 +168,39 @@ class AdvancedRAGPipeline:
 
         is_global = self._is_global_query(user_query)
         effective_candidates = max(retrieval_candidates, 15) if is_global else max(retrieval_candidates, 8)
-        effective_top_n = max(top_n_rerank, 8) if is_global else max(top_n_rerank, 4)
+        effective_top_n = max(top_n_rerank, 10) if is_global else max(top_n_rerank, 4)
 
-        search_query = "document overview summary main sections cells topics content guide" if is_global else user_query
-        candidates = self.hybrid_engine.search(
-            query=search_query,
-            top_k=effective_candidates,
-            candidate_pool=max(20, effective_candidates * 2)
-        )
+        if is_global and self.hybrid_engine.bm25_store.chunks:
+            all_chunks = self.hybrid_engine.bm25_store.chunks
+            target_count = min(len(all_chunks), 15)
+            if len(all_chunks) <= 15:
+                sampled = all_chunks
+            else:
+                step = len(all_chunks) / float(target_count)
+                sampled = [all_chunks[int(i * step)] for i in range(target_count)]
+
+            candidates = [
+                {
+                    "text": c.text,
+                    "metadata": {
+                        "document_id": c.metadata.document_id,
+                        "document_name": c.metadata.document_name,
+                        "page_number": c.metadata.page_number,
+                        "section": c.metadata.section,
+                        "chunk_id": c.metadata.chunk_id
+                    },
+                    "score": 1.0,
+                    "retrieval_method": "global_scan"
+                }
+                for c in sampled
+            ]
+        else:
+            search_query = "document overview summary main sections cells topics content guide" if is_global else user_query
+            candidates = self.hybrid_engine.search(
+                query=search_query,
+                top_k=effective_candidates,
+                candidate_pool=max(20, effective_candidates * 2)
+            )
         retrieval_ms = (time.time() - total_start) * 1000.0
         
         t_rerank_start = time.time()
