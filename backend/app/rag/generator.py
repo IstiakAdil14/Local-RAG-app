@@ -50,14 +50,31 @@ class LocalGenerator:
             self.use_api = True
 
     def _api_generate(self, context_text: str, user_query: str = "", max_tokens: int = 250) -> str:
-        # 1. High-speed Pollinations GET API
+        # 1. High-speed Pollinations JSON POST API
         try:
-            prompt = f"Context:\n{context_text[:1500]}\n\nQuestion: {user_query}\n\nProvide a direct 1-2 sentence answer based ONLY on the context:"
-            url = f"https://text.pollinations.ai/{urllib.parse.quote(prompt)}"
-            res = requests.get(url, timeout=7)
+            url = "https://text.pollinations.ai/"
+            payload = {
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are an expert AI document assistant.\n"
+                            "CRITICAL INSTRUCTIONS:\n"
+                            "1. Answer the user's question directly and concisely based ONLY on the provided context.\n"
+                            "2. Write in complete, professional natural sentences. Do NOT output raw title lines or cell numbers alone."
+                        )
+                    },
+                    {
+                        "role": "user",
+                        "content": f"Context:\n{context_text[:2000]}\n\nQuestion: {user_query}\n\nAnswer:"
+                    }
+                ],
+                "model": "openai"
+            }
+            res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=6)
             if res.status_code == 200 and res.text.strip():
                 ans = res.text.strip()
-                if len(ans) > 2 and not ans.startswith("{") and "The document does not specify" not in ans:
+                if len(ans) > 5 and not ans.startswith("{") and "The document does not specify" not in ans:
                     return ans
         except Exception:
             pass
@@ -93,7 +110,7 @@ class LocalGenerator:
             except Exception:
                 continue
 
-        # 3. Pinpoint Keyword Match Fallback
+        # 3. Pinpoint Keyword Match Fallback with Articulate Sentence Synthesis
         stop_words = {"what", "whats", "who", "where", "when", "how", "why", "tell", "give", "about", "this", "that", "with", "from", "the", "pdf", "doc", "document", "is", "are", "was", "were", "can", "she", "he", "they", "it", "name", "project", "explain", "ive", "please", "show", "me", "summarize", "overview"}
         query_words = set([w.lower() for w in re.findall(r"\w+", user_query) if len(w) > 2 and w.lower() not in stop_words])
 
@@ -111,9 +128,18 @@ class LocalGenerator:
 
         if matched_lines:
             matched_lines.sort(key=lambda x: x[0], reverse=True)
-            best_match = matched_lines[0][1]
-            clean_match = re.sub(r'^(Cell\s*\d+\s*:|\*|\-)\s*', '', best_match, flags=re.I).strip()
-            return clean_match
+            top_matches = [m[1] for m in matched_lines[:2]]
+            
+            cleaned_snippets = []
+            for line in top_matches:
+                clean_line = re.sub(r'^(Cell\s*\d+\s*:|\*|\-)\s*', '', line, flags=re.I).strip()
+                cleaned_snippets.append(clean_line)
+
+            combined_info = " ".join(cleaned_snippets)
+            if not combined_info.endswith("."):
+                combined_info += "."
+
+            return f"According to the document: {combined_info}"
 
         return "The document does not specify this information."
 
@@ -149,14 +175,13 @@ class LocalGenerator:
             pass
 
         # 2. Universal Section & Header Extraction Fallback across ALL chunks
-        section_headers = []
+        raw_headers = []
+        major_category_headers = []
+
         for c in context_chunks:
             sec_meta = c.get("metadata", {}).get("section", "")
             if sec_meta and sec_meta not in ["General", "General Section"] and len(sec_meta) < 75:
-                clean_sec = re.sub(r'^[^\w\s]+', '', sec_meta).strip()
-                clean_sec = re.sub(r'^Cell\s*\d+[\:\-]?\s*', '', clean_sec, flags=re.I).strip()
-                if clean_sec and len(clean_sec) > 3:
-                    section_headers.append(clean_sec)
+                raw_headers.append(sec_meta.strip())
 
             text = c.get("text", "")
             for line in text.split("\n"):
@@ -164,8 +189,10 @@ class LocalGenerator:
                 if not line_clean or len(line_clean) > 80:
                     continue
 
-                clean_no_symbols = re.sub(r'^[^\w\s]+', '', line_clean).strip()
+                if any(emoji in line_clean for emoji in ["📌", "🧹", "🔍", "⚙️", "📊"]) or "(Cells" in line_clean:
+                    major_category_headers.append(line_clean)
 
+                clean_no_symbols = re.sub(r'^[^\w\s]+', '', line_clean).strip()
                 is_header = (
                     bool(re.search(r'\(Cells?\s*\d+', line_clean, re.I)) or
                     bool(re.match(r'^(📌|🧹|🔍|⚙️|📊|#+|\d+[\.\:]|Cell\s*\d+[\:\-])', line_clean, re.I)) or
@@ -176,9 +203,17 @@ class LocalGenerator:
                     display_header = re.sub(r'^[^\w\s]+', '', line_clean).strip()
                     display_header = re.sub(r'^Cell\s*\d+[\:\-]?\s*', '', display_header, flags=re.I).strip()
                     if display_header and len(display_header) > 3:
-                        section_headers.append(display_header)
+                        raw_headers.append(display_header)
 
-        unique_sections = list(dict.fromkeys(section_headers))[:8]
+        # Prioritize major category section headers if found
+        if major_category_headers:
+            unique_majors = list(dict.fromkeys(major_category_headers))[:8]
+            return (
+                f"This document provides a structured guide covering the following main sections:\n\n"
+                + "\n".join([f"• {sec}" for sec in unique_majors])
+            )
+
+        unique_sections = list(dict.fromkeys(raw_headers))[:8]
         if len(unique_sections) >= 2:
             return (
                 f"This document provides a structured guide covering the following main sections:\n\n"
