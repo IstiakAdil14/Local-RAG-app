@@ -1,6 +1,19 @@
 import os
 import requests
+from pathlib import Path
 from typing import List, Dict, Any
+
+def is_cloud_environment() -> bool:
+    # Detect Streamlit Cloud, Render, or low RAM environments (< 3GB RAM)
+    if os.getenv("STREAMLIT_SERVER_PORT") or os.getenv("HOME") == "/home/adminuser" or "/mount/src" in str(Path.cwd()):
+        return True
+    try:
+        import psutil
+        if psutil.virtual_memory().total < 3 * 1024**3:
+            return True
+    except Exception:
+        pass
+    return False
 
 class LocalGenerator:
     def __init__(self, model_id: str = "Qwen/Qwen2.5-0.5B-Instruct", device: str = None):
@@ -8,6 +21,11 @@ class LocalGenerator:
         self.model = None
         self.tokenizer = None
         self.use_api = False
+
+        if is_cloud_environment():
+            print(f"☁️ Cloud environment detected. Using Serverless HF API for generator ({model_id}).")
+            self.use_api = True
+            return
 
         try:
             import torch
@@ -27,7 +45,7 @@ class LocalGenerator:
             self.model.eval()
             self.device = device
         except Exception as e:
-            print(f"⚠️ PyTorch generator loading skipped ({e}). Using Hugging Face Serverless API fallback.")
+            print(f"⚠️ Local generator loading skipped ({e}). Using Serverless API.")
             self.use_api = True
 
     def _api_generate(self, prompt_text: str, max_tokens: int = 250) -> str:
@@ -37,7 +55,6 @@ class LocalGenerator:
             headers["Authorization"] = f"Bearer {hf_token}"
 
         try:
-            # Try HF InferenceClient if installed
             from huggingface_hub import InferenceClient
             client = InferenceClient(model=self.model_id, token=hf_token)
             res = client.text_generation(prompt_text, max_new_tokens=max_tokens)
@@ -46,7 +63,6 @@ class LocalGenerator:
         except Exception:
             pass
 
-        # Fallback to direct HTTP request
         try:
             url = f"https://api-inference.huggingface.co/models/{self.model_id}"
             payload = {
@@ -94,7 +110,7 @@ class LocalGenerator:
             {"role": "user", "content": f"Context:\n{formatted_context}\n\nQuestion: {query}\n\nDirect Answer:"}
         ]
 
-        if self.model is not None and self.tokenizer is not None and not self.use_api:
+        if not self.use_api and self.model is not None and self.tokenizer is not None:
             try:
                 import torch
                 prompt_text = self.tokenizer.apply_chat_template(

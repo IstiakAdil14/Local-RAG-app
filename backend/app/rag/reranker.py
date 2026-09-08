@@ -1,10 +1,26 @@
 import os
+from pathlib import Path
 from typing import List, Dict, Any
+
+def is_cloud_environment() -> bool:
+    if os.getenv("STREAMLIT_SERVER_PORT") or os.getenv("HOME") == "/home/adminuser" or "/mount/src" in str(Path.cwd()):
+        return True
+    try:
+        import psutil
+        if psutil.virtual_memory().total < 3 * 1024**3:
+            return True
+    except Exception:
+        pass
+    return False
 
 class LocalCrossEncoderReranker:
     def __init__(self, model_name: str = "BAAI/bge-reranker-base", device: str = None):
         self.model_name = model_name
         self.model = None
+
+        if is_cloud_environment():
+            print(f"☁️ Cloud environment detected. Bypassing heavy CrossEncoder reranker ({model_name}).")
+            return
 
         try:
             import torch

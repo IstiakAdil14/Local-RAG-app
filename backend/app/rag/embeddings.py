@@ -10,19 +10,33 @@ os.makedirs(_models_dir, exist_ok=True)
 os.environ.setdefault("HF_HOME", _models_dir)
 os.environ.setdefault("TRANSFORMERS_CACHE", _models_dir)
 
+def is_cloud_environment() -> bool:
+    if os.getenv("STREAMLIT_SERVER_PORT") or os.getenv("HOME") == "/home/adminuser" or "/mount/src" in str(Path.cwd()):
+        return True
+    try:
+        import psutil
+        if psutil.virtual_memory().total < 3 * 1024**3:
+            return True
+    except Exception:
+        pass
+    return False
+
 class LocalEmbeddingEngine:
     def __init__(self, model_name: str = "BAAI/bge-m3", device: str = None):
         self.model_name = model_name
         self.model = None
         self.use_api = False
 
-        # Attempt to load local SentenceTransformer model
+        if is_cloud_environment():
+            print(f"☁️ Cloud environment detected. Using Serverless HF API for embeddings ({model_name}).")
+            self.use_api = True
+            return
+
         try:
             import torch
             import sentence_transformers.sentence_transformer.modules as st_modules
             from sentence_transformers import SentenceTransformer
 
-            # Patch Pooling load for legacy configs
             _original_pooling_load = st_modules.Pooling.load
             @classmethod
             def _patched_pooling_load(cls, model_path: str, **kwargs):
@@ -43,7 +57,7 @@ class LocalEmbeddingEngine:
             print(f"Loading embedding model '{model_name}' on device: {device}")
             self.model = SentenceTransformer(model_name, device=device)
         except Exception as e:
-            print(f"⚠️ Local PyTorch embedding loading skipped ({e}). Using Hugging Face Serverless API fallback.")
+            print(f"⚠️ Local PyTorch embedding loading skipped ({e}). Using Serverless API.")
             self.use_api = True
 
     def _api_embed(self, texts: List[str]) -> List[List[float]]:
@@ -59,11 +73,10 @@ class LocalEmbeddingEngine:
                 res = requests.post(url, headers=headers, json={"inputs": text}, timeout=10)
                 if res.status_code == 200:
                     data = res.json()
-                    if isinstance(data, list) and isinstance(data[0], list):
-                        # Mean pooling over token embeddings
+                    if isinstance(data, list) and len(data) > 0 and isinstance(data[0], list):
                         mean_vec = [sum(col) / len(col) for col in zip(*data)]
                         results.append(mean_vec)
-                    elif isinstance(data, list) and isinstance(data[0], (int, float)):
+                    elif isinstance(data, list) and len(data) > 0 and isinstance(data[0], (int, float)):
                         results.append(data)
                     else:
                         results.append([0.0] * 1024)
@@ -76,7 +89,7 @@ class LocalEmbeddingEngine:
     def embed_texts(self, texts: List[str], batch_size: int = 16) -> List[List[float]]:
         if not texts:
             return []
-        if self.model is not None and not self.use_api:
+        if not self.use_api and self.model is not None:
             try:
                 embeddings = self.model.encode(
                     texts,
