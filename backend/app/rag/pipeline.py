@@ -352,6 +352,15 @@ class AdvancedRAGPipeline:
                 answer = f"Based on the document overview: {latest_doc_meta.summary}"
                 strategy_used = "fallback_tier4_doc_summary"
 
+        # Answer Verification Layer
+        from app.rag.answer_verifier import AnswerVerifier
+        answer = AnswerVerifier.verify(
+            query=user_query,
+            raw_answer=answer,
+            context_chunks=reranked_chunks,
+            doc_metadata=latest_doc_meta
+        )
+
         generation_ms = (time.time() - t_gen_start) * 1000.0
         total_ms = (time.time() - total_start) * 1000.0
 
