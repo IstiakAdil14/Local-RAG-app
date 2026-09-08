@@ -322,14 +322,14 @@ class LocalGenerator:
 
         # Experience / Nursing Experience Extraction
         if any(k in q_lower for k in ["experience", "experiences", "worked", "duty", "ward", "position"]):
-            exp_match = re.search(r"(?:EXPERIENCE|WORK\s*EXPERIENCE|PROFESSIONAL\s*EXPERIENCE|NURSING\s*EXPERIENCE)\s*[:\-]?\s*([\s\S]+?)(?=\s*(?:EDUCATION|QUALIFICATION|ACADEMIC|REFERENCE|DECLARATION|SKILLS|PROJECTS|TRAINING|HOBBIES|\b[A-Z\s]{4,}\:|$))", context_text, re.I)
+            exp_match = re.search(r"(?:^|\n)\s*(?:EXPERIENCE|WORK\s*EXPERIENCE|PROFESSIONAL\s*EXPERIENCE|NURSING\s*EXPERIENCE)\s*[:\-]?\s*([\s\S]+?)(?=\s*(?:\n\s*[A-Z\s]{4,}\s*[:\-]|EDUCATION|QUALIFICATION|ACADEMIC|REFERENCE|DECLARATION|SKILLS|PROJECTS|TRAINING|HOBBIES|$))", context_text, re.I)
             if exp_match:
                 exp_text = exp_match.group(1).strip()
                 exp_items = [re.sub(r'^[^\w]+', '', item).strip() for item in re.split(r'[\*\•\n\|]+', exp_text) if len(item.strip()) > 2]
                 if exp_items:
                     formatted_exp = ", ".join(exp_items[:10])
                     return f"The document lists the following experience: {formatted_exp}."
-                if exp_text:
+                if exp_text and len(exp_text) > 3:
                     return f"The document lists the following experience: {exp_text}."
 
         # Candidate Name / CV Owner Extraction
