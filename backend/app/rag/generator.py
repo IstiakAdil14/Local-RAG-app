@@ -49,6 +49,25 @@ class LocalGenerator:
             self.use_api = True
 
     def _api_generate(self, prompt_text: str, context_chunks: List[Dict[str, Any]], user_query: str = "", max_tokens: int = 250) -> str:
+        # 1. Try Pollinations Free Open-Access LLM Inference API (Instant, Free, Zero Auth)
+        try:
+            url = "https://text.pollinations.ai/"
+            payload = {
+                "messages": [
+                    {"role": "system", "content": "You are a strictly grounded, accurate, and concise RAG assistant. Answer the user query using ONLY explicit facts found directly in the Context provided."},
+                    {"role": "user", "content": prompt_text}
+                ],
+                "model": "openai"
+            }
+            res = requests.post(url, json=payload, timeout=10)
+            if res.status_code == 200 and res.text.strip():
+                ans = res.text.strip()
+                if len(ans) > 5 and not ans.startswith("{"):
+                    return ans
+        except Exception:
+            pass
+
+        # 2. Try Hugging Face Official Chat Router Endpoint
         headers = {}
         hf_token = os.getenv("HF_TOKEN")
         if hf_token:
@@ -62,7 +81,6 @@ class LocalGenerator:
             self.model_id
         ]
 
-        # 1. Try Hugging Face Official Chat Router Endpoint
         for model in models_to_try:
             try:
                 url = "https://router.huggingface.co/hf-inference/v1/chat/completions"
@@ -73,7 +91,7 @@ class LocalGenerator:
                     ],
                     "max_tokens": max_tokens
                 }
-                res = requests.post(url, headers=headers, json=payload, timeout=10)
+                res = requests.post(url, headers=headers, json=payload, timeout=8)
                 if res.status_code == 200:
                     data = res.json()
                     if "choices" in data and len(data["choices"]) > 0:
@@ -83,45 +101,36 @@ class LocalGenerator:
             except Exception:
                 continue
 
-        # 2. Try Standard Model Ingest API
-        for model in models_to_try:
-            try:
-                url = f"https://api-inference.huggingface.co/models/{model}"
-                payload = {
-                    "inputs": prompt_text,
-                    "parameters": {"max_new_tokens": max_tokens, "return_full_text": False}
-                }
-                res = requests.post(url, headers=headers, json=payload, timeout=10)
-                if res.status_code == 200:
-                    data = res.json()
-                    ans = ""
-                    if isinstance(data, list) and len(data) > 0:
-                        ans = data[0].get("generated_text", "").strip()
-                    elif isinstance(data, dict):
-                        ans = data.get("generated_text", "").strip()
-                    if ans and len(ans) > 5:
-                        return ans
-            except Exception:
-                continue
-
         # 3. Question-Aware Smart Extraction Fallback
-        ignore_words = {"what", "whats", "who", "where", "when", "how", "tell", "give", "about", "this", "that", "with", "from", "the", "pdf", "doc", "document"}
+        ignore_words = {"what", "whats", "who", "where", "when", "how", "tell", "give", "about", "this", "that", "with", "from", "the", "pdf", "doc", "document", "her", "his", "their", "your", "name", "is", "are", "was", "were"}
         q_words = [w.lower() for w in re.findall(r"\w+", user_query) if len(w) > 2 and w.lower() not in ignore_words]
-        matched_sentences = []
+        
+        # Keyword synonyms expansion
+        synonyms = {
+            "profession": ["profession", "career", "occupation", "job", "work", "midwife", "objective", "registered"],
+            "qualification": ["qualification", "qualifications", "education", "academic", "hsc", "ssc", "gpa", "school", "college", "degree", "certificate"],
+            "educational": ["educational", "education", "academic", "hsc", "ssc", "gpa", "school", "college", "degree", "certificate"]
+        }
+        
+        expanded_keywords = set(q_words)
+        for qw in q_words:
+            if qw in synonyms:
+                expanded_keywords.update(synonyms[qw])
 
+        matched_sentences = []
         for c in context_chunks:
             text = c.get("text", "")
             lines = [line.strip() for line in re.split(r"[\n\.]+", text) if len(line.strip()) > 8]
             for line in lines:
                 line_lower = line.lower()
-                if any(qw in line_lower for qw in q_words):
+                if any(kw in line_lower for kw in expanded_keywords):
                     matched_sentences.append(line)
 
         if matched_sentences:
             unique_matches = list(dict.fromkeys(matched_sentences))[:4]
             return "\n\n".join([f"• {m}" for m in unique_matches])
 
-        # Fallback to context chunk snippets if no specific keyword match
+        # Fallback to general context chunk snippets if no specific keyword match
         general_chunks = [c.get("text", "").strip()[:300] for c in context_chunks if c.get("text")]
         if general_chunks:
             return "\n\n".join([f"• {chunk}..." for chunk in general_chunks[:3]])
