@@ -48,32 +48,42 @@ class LocalGenerator:
             print(f"⚠️ Local generator loading skipped ({e}). Using Serverless API.")
             self.use_api = True
 
-    def _api_generate(self, prompt_text: str, context_chunks: List[Dict[str, Any]], max_tokens: int = 250) -> str:
+    def _api_generate(self, prompt_text: str, context_chunks: List[Dict[str, Any]], user_query: str = "", max_tokens: int = 250) -> str:
         headers = {}
         hf_token = os.getenv("HF_TOKEN")
         if hf_token:
             headers["Authorization"] = f"Bearer {hf_token}"
 
         models_to_try = [
-            self.model_id,
             "Qwen/Qwen2.5-72B-Instruct",
             "meta-llama/Llama-3.2-3B-Instruct",
             "mistralai/Mistral-7B-Instruct-v0.2",
-            "HuggingFaceH4/zephyr-7b-beta"
+            "HuggingFaceH4/zephyr-7b-beta",
+            self.model_id
         ]
 
-        # 1. Try Hugging Face InferenceClient
+        # 1. Try Hugging Face Official Chat Router Endpoint
         for model in models_to_try:
             try:
-                from huggingface_hub import InferenceClient
-                client = InferenceClient(model=model, token=hf_token)
-                res = client.text_generation(prompt_text, max_new_tokens=max_tokens)
-                if res and len(res.strip()) > 5:
-                    return res.strip()
+                url = "https://router.huggingface.co/hf-inference/v1/chat/completions"
+                payload = {
+                    "model": model,
+                    "messages": [
+                        {"role": "user", "content": prompt_text}
+                    ],
+                    "max_tokens": max_tokens
+                }
+                res = requests.post(url, headers=headers, json=payload, timeout=10)
+                if res.status_code == 200:
+                    data = res.json()
+                    if "choices" in data and len(data["choices"]) > 0:
+                        ans = data["choices"][0]["message"]["content"].strip()
+                        if ans and len(ans) > 5:
+                            return ans
             except Exception:
                 continue
 
-        # 2. Try HTTP REST request
+        # 2. Try Standard Model Ingest API
         for model in models_to_try:
             try:
                 url = f"https://api-inference.huggingface.co/models/{model}"
@@ -81,7 +91,7 @@ class LocalGenerator:
                     "inputs": prompt_text,
                     "parameters": {"max_new_tokens": max_tokens, "return_full_text": False}
                 }
-                res = requests.post(url, headers=headers, json=payload, timeout=12)
+                res = requests.post(url, headers=headers, json=payload, timeout=10)
                 if res.status_code == 200:
                     data = res.json()
                     ans = ""
@@ -94,18 +104,27 @@ class LocalGenerator:
             except Exception:
                 continue
 
-        # 3. Grounded Extractive Summary Fallback (Guarantees clean grounded response from context)
-        extracted_facts = []
-        for c in context_chunks:
-            text = c.get("text", "").strip()
-            if text:
-                # Clean multiple newlines and spaces
-                cleaned = re.sub(r"\s+", " ", text)
-                extracted_facts.append(cleaned[:300])
+        # 3. Question-Aware Smart Extraction Fallback
+        ignore_words = {"what", "whats", "who", "where", "when", "how", "tell", "give", "about", "this", "that", "with", "from", "the", "pdf", "doc", "document"}
+        q_words = [w.lower() for w in re.findall(r"\w+", user_query) if len(w) > 2 and w.lower() not in ignore_words]
+        matched_sentences = []
 
-        if extracted_facts:
-            summary = "\n\n".join([f"• {fact}..." for fact in extracted_facts[:4]])
-            return f"**Summary from Document Context:**\n\n{summary}"
+        for c in context_chunks:
+            text = c.get("text", "")
+            lines = [line.strip() for line in re.split(r"[\n\.]+", text) if len(line.strip()) > 8]
+            for line in lines:
+                line_lower = line.lower()
+                if any(qw in line_lower for qw in q_words):
+                    matched_sentences.append(line)
+
+        if matched_sentences:
+            unique_matches = list(dict.fromkeys(matched_sentences))[:4]
+            return "\n\n".join([f"• {m}" for m in unique_matches])
+
+        # Fallback to context chunk snippets if no specific keyword match
+        general_chunks = [c.get("text", "").strip()[:300] for c in context_chunks if c.get("text")]
+        if general_chunks:
+            return "\n\n".join([f"• {chunk}..." for chunk in general_chunks[:3]])
 
         return "I could not find this information in the provided documents."
 
@@ -171,7 +190,7 @@ class LocalGenerator:
                 self.use_api = True
 
         prompt_fallback = f"{system_instruction}\n\nContext:\n{formatted_context}\n\nQuestion: {query}\n\nDirect Answer:"
-        raw_answer = self._api_generate(prompt_fallback, context_chunks, max_tokens=max_tokens)
+        raw_answer = self._api_generate(prompt_fallback, context_chunks, user_query=query, max_tokens=max_tokens)
         for prefix in ["Direct Answer:", "Answer:", "Summary:", "Based on the context,", "According to the provided documents,"]:
             if raw_answer.startswith(prefix):
                 raw_answer = raw_answer[len(prefix):].strip()
