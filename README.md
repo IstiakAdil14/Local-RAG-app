@@ -1,5 +1,9 @@
 # 📚 Fully Local & Offline RAG System
 
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://local-rag-app-fpnbg4fqmarllxjiu2qm3s.streamlit.app/)
+
+**🌐 Deployed Live App**: [https://local-rag-app-fpnbg4fqmarllxjiu2qm3s.streamlit.app/](https://local-rag-app-fpnbg4fqmarllxjiu2qm3s.streamlit.app/)
+
 An end-to-end, privacy-first, fully local Retrieval-Augmented Generation (RAG) system built with **FastAPI**, **Qdrant**, **Streamlit**, and Hugging Face transformer models. Running completely offline with 0% external API dependencies, this system ingests multi-format documents, executes hybrid sparse-dense retrieval, reranks results with a neural cross-encoder, and generates grounded, cited answers using local LLMs.
 
 ---
