@@ -243,6 +243,29 @@ class LocalGenerator:
 
         return f"This document covers the following core content:\n\n{full_context[:300]}..."
 
+    def _extract_targeted_attribute(self, query: str, context_text: str) -> Optional[str]:
+        q_lower = query.lower()
+        field_regex = None
+        if "father" in q_lower:
+            field_regex = r"(?:Father[’']?s?\s*Name|Father)\s*[:\-]\s*([A-Za-z\s\.]+?)(?=\s*(?:Mother|Present|Permanent|DECLARATION|Date|Religion|NID|Mobile|Phone|Address|[\:\-\n]|$))"
+        elif "mother" in q_lower:
+            field_regex = r"(?:Mother[’']?s?\s*Name|Mother)\s*[:\-]\s*([A-Za-z\s\.]+?)(?=\s*(?:Father|Present|Permanent|DECLARATION|Date|Religion|NID|Mobile|Phone|Address|[\:\-\n]|$))"
+        elif "address" in q_lower:
+            field_regex = r"(?:Present\s*Address|Permanent\s*Address|Address)\s*[:\-]\s*(.+?)(?=\s*(?:DECLARATION|Date|Religion|NID|Mobile|Phone|[\n]|$))"
+        elif "email" in q_lower:
+            field_regex = r"([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})"
+        elif "phone" in q_lower or "mobile" in q_lower or "contact" in q_lower:
+            field_regex = r"(\+?\d[\d\s\-\(\)]{8,})"
+
+        if field_regex:
+            match = re.search(field_regex, context_text, re.IGNORECASE)
+            if match:
+                extracted_val = match.group(1).strip()
+                extracted_val = re.sub(r'[\:\-]$', '', extracted_val).strip()
+                if extracted_val and len(extracted_val) > 1:
+                    return extracted_val
+        return None
+
     def generate_grounded_answer(
         self,
         query: str,
@@ -257,12 +280,17 @@ class LocalGenerator:
             for c in context_chunks
         ])
 
+        # Pinpoint targeted attribute extraction (e.g. father's name, mother's name, address, email)
+        attr_match = self._extract_targeted_attribute(query, context_text)
+        if attr_match:
+            return attr_match
+
         system_instruction = (
             "You are an ultra-precise, grounded RAG assistant.\n"
             "CRITICAL INSTRUCTIONS:\n"
-            "1. Answer ONLY what the user explicitly asks. Provide ZERO extra, unasked, or irrelevant information.\n"
-            "2. Be direct, precise, and concise (1-2 sentences max for specific questions).\n"
-            "3. Do NOT dump raw text blocks or quote cell numbers.\n"
+            "1. Answer ONLY what the user explicitly asks. Provide ONLY the exact value requested (e.g. if asked for a name, return ONLY the name, like 'Anonda Dey').\n"
+            "2. Do NOT output unasked fields or extra sentences (e.g. if asked for father's name, do NOT include mother's name, address, or declarations).\n"
+            "3. Be direct, precise, and concise (1-5 words max for specific fact lookups).\n"
             "4. If the exact answer is not explicitly stated in the context, reply EXACTLY: 'The document does not specify this information.'"
         )
 
