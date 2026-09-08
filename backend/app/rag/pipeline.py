@@ -151,8 +151,10 @@ class AdvancedRAGPipeline:
             r"\blist every\b",
             r"\boverview\b",
             r"\bwhat\s+is\s+about\b",
-            r"\babout\s+this\s+(doc|pdf|document)\b",
-            r"\bwhat\s+is\s+this\s+(doc|pdf|document)\s+about\b"
+            r"\babout\s+this\s+(doc|pdf|document|txt|file)\b",
+            r"\bwhat\s+is\s+this\s+(doc|pdf|document|txt|file)\s+about\b",
+            r"\bexplain\s+(this|the|a)?\s*(doc|pdf|document|txt|file)\b",
+            r"\bexplain\b"
         ]
         return any(re.search(p, q_lower) for p in patterns)
     

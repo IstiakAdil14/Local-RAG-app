@@ -49,7 +49,7 @@ class LocalGenerator:
             self.use_api = True
 
     def _api_generate(self, context_text: str, user_query: str = "", max_tokens: int = 250) -> str:
-        # 1. High-speed Pollinations JSON POST API (Zero Auth, Free, Instant, Ultra-Strict)
+        # 1. High-speed Pollinations JSON POST API
         try:
             url = "https://text.pollinations.ai/"
             payload = {
@@ -58,11 +58,11 @@ class LocalGenerator:
                         "role": "system",
                         "content": (
                             "You are an ultra-precise, grounded RAG assistant.\n"
-                            "STRICT INSTRUCTIONS:\n"
+                            "CRITICAL RULES:\n"
                             "1. Answer ONLY what the user explicitly asks. Provide NO extra, unasked, or irrelevant information.\n"
-                            "2. Be extremely direct and concise (1-2 sentences max for specific questions).\n"
+                            "2. Be direct, precise, and concise (1-2 sentences max for specific questions).\n"
                             "3. Base your answer strictly on the Context provided.\n"
-                            "4. Do NOT quote cell numbers or raw chunk headers.\n"
+                            "4. Do NOT dump raw text blocks or quote cell numbers.\n"
                             "5. If the exact answer is not explicitly stated in the context, reply EXACTLY: 'The document does not specify this information.'"
                         )
                     },
@@ -76,7 +76,7 @@ class LocalGenerator:
             res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=7)
             if res.status_code == 200 and res.text.strip():
                 ans = res.text.strip()
-                if len(ans) > 2 and not ans.startswith("{") and "Summary based on" not in ans:
+                if len(ans) > 2 and not ans.startswith("{") and "The document does not specify" not in ans:
                     return ans
         except Exception:
             pass
@@ -112,8 +112,8 @@ class LocalGenerator:
             except Exception:
                 continue
 
-        # 3. Pinpoint Keyword Match Fallback (Zero Raw Dump Headers)
-        stop_words = {"what", "whats", "who", "where", "when", "how", "why", "tell", "give", "about", "this", "that", "with", "from", "the", "pdf", "doc", "document", "is", "are", "was", "were", "can", "she", "he", "they", "it", "name", "project"}
+        # 3. Pinpoint Keyword Match Fallback
+        stop_words = {"what", "whats", "who", "where", "when", "how", "why", "tell", "give", "about", "this", "that", "with", "from", "the", "pdf", "doc", "document", "is", "are", "was", "were", "can", "she", "he", "they", "it", "name", "project", "explain"}
         query_words = set([w.lower() for w in re.findall(r"\w+", user_query) if len(w) > 2 and w.lower() not in stop_words])
 
         lines = [line.strip() for line in re.split(r"[\n\.;]+", context_text) if len(line.strip()) > 8]
@@ -127,7 +127,6 @@ class LocalGenerator:
         if matched_lines:
             matched_lines.sort(key=lambda x: x[0], reverse=True)
             best_match = matched_lines[0][1]
-            # Clean up cell prefixes if any
             clean_match = re.sub(r'^(Cell\s*\d+\s*:|\*|\-)\s*', '', best_match, flags=re.I).strip()
             return clean_match
 
@@ -137,20 +136,20 @@ class LocalGenerator:
         if not context_chunks:
             return "The provided document is empty or could not be parsed."
 
-        context_text = "\n".join([c.get("text", "")[:300] for c in context_chunks[:5]])
+        context_text = "\n\n".join([c.get("text", "")[:350] for c in context_chunks[:6]])
 
-        # High-speed Pollinations Summary
+        # 1. Try Pollinations JSON POST API for clean high-level summary
         try:
             url = "https://text.pollinations.ai/"
             payload = {
                 "messages": [
                     {
                         "role": "system",
-                        "content": "You are a concise document analyst. Provide a 2-3 sentence overview explaining what this document is about. Do NOT quote cell numbers or raw code."
+                        "content": "You are a professional document analyst. Provide a clear, high-level 3-sentence summary explaining what this document is about. Do NOT quote cell numbers or raw code snippets."
                     },
                     {
                         "role": "user",
-                        "content": f"Document Context:\n{context_text}\n\nOverview:"
+                        "content": f"Document Content:\n{context_text}\n\nDocument Overview:"
                     }
                 ],
                 "model": "openai"
@@ -158,12 +157,31 @@ class LocalGenerator:
             res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=7)
             if res.status_code == 200 and res.text.strip():
                 ans = res.text.strip()
-                if len(ans) > 5 and not ans.startswith("{"):
+                if len(ans) > 10 and not ans.startswith("{"):
                     return ans
         except Exception:
             pass
 
-        return "This document provides step-by-step explanations and structured guidelines for the project data processing and model workflow."
+        # 2. Structural Heading Extraction Fallback
+        section_headers = []
+        for c in context_chunks:
+            text = c.get("text", "")
+            for line in text.split("\n"):
+                line_clean = line.strip()
+                # Extract headers (e.g. Data Loading, Data Cleaning, Model Training, Personal Information)
+                if re.match(r'^(#+|\d+\.|\b[A-Z0-9\s_\-\.]{3,}\b$|^[A-Z][A-Za-z0-9\s]{2,30}:)', line_clean) and len(line_clean) < 60:
+                    section_headers.append(re.sub(r'[^\w\s]', '', line_clean).strip())
+
+        unique_sections = list(dict.fromkeys([s for s in section_headers if len(s) > 3]))[:5]
+        if unique_sections:
+            return (
+                f"This document provides a structured guide covering the following main sections:\n\n"
+                + "\n".join([f"• {sec}" for sec in unique_sections])
+            )
+
+        # Fallback first paragraph summary
+        first_text = context_chunks[0].get("text", "").strip()[:250]
+        return f"This document covers the following core topic:\n\n{first_text}..."
 
     def generate_grounded_answer(
         self,
